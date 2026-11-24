@@ -7,7 +7,7 @@ import { soundEngine } from '../audio/soundEngine';
 import { CHALLENGES } from '../engine/constants';
 
 export const MainMenu: React.FC = () => {
-  const startSoloGame = useGameStore((s) => s.startSoloGame);
+  const openScenePickerFor = useGameStore((s) => s.openScenePickerFor);
   const setScreen = useGameStore((s) => s.setScreen);
   const bestSoloScore = useGameStore((s) => s.bestSoloScore);
   const profile = useGameStore((s) => s.profile);
@@ -52,11 +52,17 @@ export const MainMenu: React.FC = () => {
         </p>
 
         <div className="menu-cta-row">
-          <button className="btn-primary" onClick={() => startSoloGame('alone')}>
+          <button
+            className="btn-primary"
+            onClick={() => openScenePickerFor({ kind: 'solo', opponent: 'alone' })}
+          >
             <Play size={17} fill="currentColor" />
             Play Solo
           </button>
-          <button className="btn-secondary" onClick={() => startSoloGame('computer')}>
+          <button
+            className="btn-secondary"
+            onClick={() => openScenePickerFor({ kind: 'solo', opponent: 'computer' })}
+          >
             <Bot size={16} />
             Vs. Computer
           </button>

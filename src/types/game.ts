@@ -1,12 +1,34 @@
 export type ScreenType =
   | 'menu'
   | 'modeSelect'
+  | 'sceneSelect'
   | 'leaderboard'
   | 'career'
   | 'createLive'
   | 'joinLive'
   | 'liveLobby'
   | 'playing';
+
+export type SceneId =
+  | 'boxing-ring'
+  | 'lagos-market'
+  | 'lagos-island'
+  | 'paris-eiffel'
+  | 'indoor-gym'
+  | 'office-lounge'
+  | 'neighbourhood-bar'
+  | 'public-park'
+  | 'living-room';
+
+export type AudienceLevel = 'none' | 'few' | 'small' | 'medium' | 'large' | 'very-large';
+
+export type SceneCategory = 'Competitive' | 'City' | 'Outdoors' | 'Indoor' | 'Social';
+
+export type PendingMatchLaunch =
+  | { kind: 'solo'; opponent: SoloOpponent; difficulty?: AiDifficulty }
+  | { kind: 'passAndPlay'; playerNames: string[] }
+  | { kind: 'challenge'; challengeId: string }
+  | { kind: 'createLive' };
 
 export type GameMode = 'solo' | 'passAndPlay' | 'challenge' | 'live';
 
@@ -158,6 +180,7 @@ export interface LiveRoom {
   code: string;
   name: string;
   mode: LiveRoomMode;
+  sceneId?: SceneId;
   visibility: 'public' | 'private';
   maxPlayers: 2 | 3 | 4;
   status: 'waiting' | 'playing' | 'round_over' | 'finished';

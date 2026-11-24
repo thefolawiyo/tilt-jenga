@@ -11,13 +11,16 @@ import {
   LiveRoomMode,
   MatchHistoryEntry,
   MoveVisualState,
+  PendingMatchLaunch,
   Player,
   PlayerProfile,
+  SceneId,
   ScreenType,
   SoloOpponent,
   TurnPhase,
 } from '../types/game';
 import { CHALLENGES, PLAYER_COLORS } from '../engine/constants';
+import { DEFAULT_SCENE_ID, getSceneById, VALID_SCENE_IDS } from '../engine/scenes';
 import { generateTowerBlocks } from '../engine/towerGenerator';
 import { getTowerLevelStats } from '../engine/rules';
 import { soundEngine } from '../audio/soundEngine';
@@ -44,6 +47,7 @@ interface PersistedData {
   completedChallenges: string[];
   settings: GameSettings;
   profile: PlayerProfile;
+  selectedSceneId?: SceneId;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -103,9 +107,14 @@ function loadPersisted(): PersistedData {
         completedChallenges: [],
         settings: DEFAULT_SETTINGS,
         profile: { ...DEFAULT_PROFILE, clientId: makeClientId() },
+        selectedSceneId: DEFAULT_SCENE_ID,
       };
     }
     const parsed = JSON.parse(raw) as Partial<PersistedData>;
+    const savedScene =
+      parsed.selectedSceneId && VALID_SCENE_IDS.includes(parsed.selectedSceneId)
+        ? parsed.selectedSceneId
+        : DEFAULT_SCENE_ID;
     return {
       bestSoloScore: parsed.bestSoloScore ?? 0,
       bestSoloMoves: parsed.bestSoloMoves ?? 0,
@@ -118,6 +127,7 @@ function loadPersisted(): PersistedData {
         clientId: parsed.profile?.clientId || makeClientId(),
         matchHistory: Array.isArray(parsed.profile?.matchHistory) ? parsed.profile.matchHistory : [],
       },
+      selectedSceneId: savedScene,
     };
   } catch {
     return {
@@ -127,6 +137,7 @@ function loadPersisted(): PersistedData {
       completedChallenges: [],
       settings: DEFAULT_SETTINGS,
       profile: { ...DEFAULT_PROFILE, clientId: makeClientId() },
+      selectedSceneId: DEFAULT_SCENE_ID,
     };
   }
 }
@@ -151,6 +162,9 @@ export type CameraCommand =
 interface GameStoreState {
   // Navigation & Modals
   screen: ScreenType;
+  selectedSceneId: SceneId;
+  pendingMatchLaunch: PendingMatchLaunch | null;
+  sceneTransitionName: string | null;
   isPaused: boolean;
   isSettingsOpen: boolean;
   isInstructionsOpen: boolean;
@@ -213,6 +227,9 @@ interface GameStoreState {
 
   // Navigation & Profile Actions
   setScreen: (screen: ScreenType) => void;
+  setSelectedSceneId: (sceneId: SceneId) => void;
+  openScenePickerFor: (launch: PendingMatchLaunch) => void;
+  confirmSceneAndLaunch: () => void;
   setPaused: (paused: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setInstructionsOpen: (open: boolean) => void;
@@ -235,6 +252,7 @@ interface GameStoreState {
     roomName: string;
     playerName: string;
     mode: LiveRoomMode;
+    sceneId: SceneId;
     visibility: 'public' | 'private';
     maxPlayers: 2 | 3 | 4;
   }) => Promise<boolean>;
@@ -276,6 +294,7 @@ function persistCurrent(state: GameStoreState) {
     completedChallenges: state.completedChallenges,
     settings: state.settings,
     profile: state.profile,
+    selectedSceneId: state.selectedSceneId,
   });
 }
 
@@ -312,6 +331,9 @@ function syncProfileToGlobalLeaderboard(state: GameStoreState) {
 
 export const useGameStore = create<GameStoreState>((set, get) => ({
   screen: 'menu',
+  selectedSceneId: initialSaved.selectedSceneId ?? DEFAULT_SCENE_ID,
+  pendingMatchLaunch: null,
+  sceneTransitionName: null,
   isPaused: false,
   isSettingsOpen: false,
   isInstructionsOpen: false,
@@ -368,6 +390,50 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   settings: initialSaved.settings,
 
   setScreen: (screen) => set({ screen, liveError: null }),
+  setSelectedSceneId: (selectedSceneId) => {
+    set({ selectedSceneId });
+    persistCurrent({ ...get(), selectedSceneId });
+  },
+  openScenePickerFor: (launch) => {
+    soundEngine.unlock();
+    soundEngine.playUiClick(1.06);
+    set({
+      pendingMatchLaunch: launch,
+      screen: 'sceneSelect',
+      liveError: null,
+    });
+  },
+  confirmSceneAndLaunch: () => {
+    const state = get();
+    const launch = state.pendingMatchLaunch;
+    const scene = getSceneById(state.selectedSceneId);
+
+    if (!launch || launch.kind === 'createLive') {
+      soundEngine.playUiClick(1.08);
+      set({
+        screen: launch?.kind === 'createLive' ? 'createLive' : 'modeSelect',
+        pendingMatchLaunch: null,
+      });
+      return;
+    }
+
+    // Show polished scene-loading overlay displaying the chosen location name while entering the match
+    set({ sceneTransitionName: scene.name });
+    window.setTimeout(() => {
+      const cur = get();
+      if (launch.kind === 'solo') {
+        cur.startSoloGame(launch.opponent, launch.difficulty);
+      } else if (launch.kind === 'passAndPlay') {
+        cur.startPassAndPlayGame(launch.playerNames);
+      } else if (launch.kind === 'challenge') {
+        cur.startChallengeGame(launch.challengeId);
+      }
+      set({ pendingMatchLaunch: null });
+      window.setTimeout(() => {
+        set({ sceneTransitionName: null });
+      }, 340);
+    }, 320);
+  },
   setPaused: (isPaused) => set({ isPaused }),
   setSettingsOpen: (isSettingsOpen) => set({ isSettingsOpen }),
   setInstructionsOpen: (isInstructionsOpen) => set({ isInstructionsOpen }),
@@ -592,7 +658,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     }
   },
 
-  createLiveMatch: async ({ roomName, playerName, mode, visibility, maxPlayers }) => {
+  createLiveMatch: async ({ roomName, playerName, mode, sceneId, visibility, maxPlayers }) => {
     soundEngine.unlock();
     soundEngine.playUiClick(1.1);
     set({ liveLoading: true, liveError: null });
@@ -604,16 +670,20 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         playerName: cleanName,
         roomName,
         mode,
+        sceneId,
         visibility,
         maxPlayers,
       });
+      const resolvedScene = getSceneById(room.sceneId ?? sceneId).id;
       set({
         liveRoom: room,
+        selectedSceneId: resolvedScene,
         liveLoading: false,
         screen: 'liveLobby',
         appliedLiveMoveSeq: 0,
         pendingRemoteMove: null,
       });
+      persistCurrent({ ...get(), selectedSceneId: resolvedScene });
       return true;
     } catch (err) {
       set({
@@ -635,9 +705,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         playerId: get().liveClientId,
         playerName: cleanName,
       });
+      // Host's selected scene is authoritative for all joining participants!
+      const hostSceneId = getSceneById(room.sceneId).id;
 
       set({
         liveRoom: room,
+        selectedSceneId: hostSceneId,
         liveLoading: false,
         pendingJoinCode: null,
         appliedLiveMoveSeq: room.moves.length,
@@ -774,6 +847,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
       // In Lobby: update player roster and auto-transition if Host started the match!
       if (state.screen === 'liveLobby') {
+        const hostSceneId = getSceneById(fresh.sceneId).id;
         if (fresh.status === 'playing') {
           const nextRun = state.runId + 1;
           const preset = fresh.mode === 'precarious' ? 'precarious' : 'standard';
@@ -781,6 +855,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
           const players = buildLivePlayers(fresh, state.liveClientId);
           set({
             liveRoom: fresh,
+            selectedSceneId: hostSceneId,
             screen: 'playing',
             mode: 'live',
             players,

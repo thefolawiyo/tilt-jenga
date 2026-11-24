@@ -9,6 +9,23 @@ import type { ServerLivePlayer, ServerLiveRoom, ServerRoomMode, ServiceResult } 
 
 const PLAYER_COLORS = ['#64E5D2', '#FF9B65', '#8581FF', '#F5D061'];
 
+const ALLOWED_SCENE_IDS = new Set([
+  'boxing-ring',
+  'lagos-market',
+  'lagos-island',
+  'paris-eiffel',
+  'indoor-gym',
+  'office-lounge',
+  'neighbourhood-bar',
+  'public-park',
+  'living-room',
+]);
+
+function sanitizeSceneId(raw: unknown): string {
+  const s = String(raw || '').trim();
+  return ALLOWED_SCENE_IDS.has(s) ? s : 'boxing-ring';
+}
+
 function makeCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let out = '';
@@ -85,6 +102,7 @@ export async function handleCreateRoom(body: Record<string, unknown>): Promise<S
   const mode: ServerRoomMode = ['classic', 'blitz', 'precarious'].includes(String(body.mode))
     ? (String(body.mode) as ServerRoomMode)
     : 'classic';
+  const sceneId = sanitizeSceneId(body.sceneId);
   const visibility = body.visibility === 'private' ? 'private' : 'public';
   const maxPlayers = ([2, 3, 4].includes(Number(body.maxPlayers)) ? Number(body.maxPlayers) : 4) as
     | 2
@@ -96,6 +114,7 @@ export async function handleCreateRoom(body: Record<string, unknown>): Promise<S
     code,
     name: roomName,
     mode,
+    sceneId,
     visibility,
     maxPlayers,
     status: 'waiting',

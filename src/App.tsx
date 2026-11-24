@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { TiltCanvas } from './scene/TiltCanvas';
 import { MainMenu } from './ui/MainMenu';
 import { ModeSelect } from './ui/ModeSelect';
+import { SceneSelectScreen } from './ui/SceneSelectScreen';
 import { LeaderboardScreen } from './ui/LeaderboardScreen';
 import { CareerScreen } from './ui/CareerScreen';
 import { CreateLiveScreen, JoinLiveScreen, LiveLobbyScreen } from './ui/LiveMatchScreens';
@@ -17,6 +18,8 @@ import { soundEngine } from './audio/soundEngine';
 
 export const App: React.FC = () => {
   const screen = useGameStore((s) => s.screen);
+  const selectedSceneId = useGameStore((s) => s.selectedSceneId);
+  const sceneTransitionName = useGameStore((s) => s.sceneTransitionName);
   const mode = useGameStore((s) => s.mode);
   const turnPhase = useGameStore((s) => s.turnPhase);
   const isPaused = useGameStore((s) => s.isPaused);
@@ -55,7 +58,12 @@ export const App: React.FC = () => {
     return () => window.clearInterval(id);
   }, [screen, mode, pollLiveRoom]);
 
-  // Sync dynamic arena crowd ambiance & suspense tension ducking with live game state
+  // Sync dynamic arena crowd ambiance, selected scene soundscape & suspense ducking
+  useEffect(() => {
+    const activeScene = screen === 'menu' ? 'boxing-ring' : selectedSceneId;
+    soundEngine.setSceneAmbience(activeScene);
+  }, [screen, selectedSceneId]);
+
   useEffect(() => {
     const inGameplay = screen === 'playing' && !isPaused;
     const isTense =
@@ -131,12 +139,36 @@ export const App: React.FC = () => {
         <AnimatePresence mode="wait">
           {screen === 'menu' && <MainMenu key="menu" />}
           {screen === 'modeSelect' && <ModeSelect key="modeSelect" />}
+          {screen === 'sceneSelect' && <SceneSelectScreen key="sceneSelect" />}
           {screen === 'leaderboard' && <LeaderboardScreen key="leaderboard" />}
           {screen === 'career' && <CareerScreen key="career" />}
           {screen === 'createLive' && <CreateLiveScreen key="createLive" />}
           {screen === 'joinLive' && <JoinLiveScreen key="joinLive" />}
           {screen === 'liveLobby' && <LiveLobbyScreen key="liveLobby" />}
           {screen === 'playing' && <GameplayHUD key="playing" />}
+        </AnimatePresence>
+
+        {/* Scene Transition Loading Curtain */}
+        <AnimatePresence>
+          {sceneTransitionName && (
+            <motion.div
+              key="scene-loading"
+              className="loading-curtain scene-transition-curtain"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.22 }}
+            >
+              <span className="eyebrow" style={{ color: 'var(--accent-aqua)' }}>
+                Entering Arena
+              </span>
+              <h2 className="scene-transition-title">{sceneTransitionName}</h2>
+              <div className="loading-bar-track">
+                <div className="loading-bar-fill" />
+              </div>
+              <span className="loading-caption">Preparing environment &amp; tower physics</span>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         {/* Modals */}

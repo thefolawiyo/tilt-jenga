@@ -29,6 +29,7 @@ export interface ServerLiveRoom {
   code: string;
   name: string;
   mode: ServerRoomMode;
+  sceneId: string;
   visibility: 'public' | 'private';
   maxPlayers: 2 | 3 | 4;
   status: 'waiting' | 'playing' | 'round_over' | 'finished';

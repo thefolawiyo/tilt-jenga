@@ -9,6 +9,7 @@ import {
   KeyRound,
   Link2,
   Lock,
+  MapPin,
   Play,
   Plus,
   Radio,
@@ -17,8 +18,10 @@ import {
 } from 'lucide-react';
 import { useGameStore } from '../store/useGameStore';
 import { LiveRoomMode } from '../types/game';
+import { getSceneById } from '../engine/scenes';
 import { buildInviteLink } from '../services/liveMatchApi';
 import { TopHubNav } from './TopHubNav';
+import { SceneArtwork } from './SceneArtwork';
 import { soundEngine } from '../audio/soundEngine';
 
 const MODE_LABELS: Record<LiveRoomMode, { title: string; desc: string }> = {
@@ -39,11 +42,15 @@ const MODE_LABELS: Record<LiveRoomMode, { title: string; desc: string }> = {
 /** ==================== CREATE LIVE MATCH SCREEN ==================== */
 export const CreateLiveScreen: React.FC = () => {
   const profile = useGameStore((s) => s.profile);
+  const selectedSceneId = useGameStore((s) => s.selectedSceneId);
+  const openScenePickerFor = useGameStore((s) => s.openScenePickerFor);
   const createLiveMatch = useGameStore((s) => s.createLiveMatch);
   const setScreen = useGameStore((s) => s.setScreen);
   const liveLoading = useGameStore((s) => s.liveLoading);
   const liveError = useGameStore((s) => s.liveError);
   const reducedMotion = useGameStore((s) => s.settings.reducedMotion);
+
+  const selectedScene = getSceneById(selectedSceneId);
 
   const [playerName, setPlayerName] = useState(profile.callsign);
   const [roomName, setRoomName] = useState(`${profile.callsign}'s Ring`);
@@ -57,6 +64,7 @@ export const CreateLiveScreen: React.FC = () => {
       roomName,
       playerName,
       mode: roomMode,
+      sceneId: selectedScene.id,
       visibility,
       maxPlayers,
     });
@@ -143,6 +151,35 @@ export const CreateLiveScreen: React.FC = () => {
                   <span>{MODE_LABELS[m].desc}</span>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Host-Authoritative Scene Location Picker Row */}
+          <div>
+            <div className="player-input-label" style={{ marginBottom: 10 }}>
+              Match Location (All Joining Players Play Here)
+            </div>
+            <div className="live-scene-selector-card">
+              <div className="live-scene-thumb-wrap">
+                <SceneArtwork sceneId={selectedScene.id} className="live-scene-thumb-svg" />
+              </div>
+              <div className="live-scene-selector-meta">
+                <div className="live-scene-selector-top">
+                  <strong>{selectedScene.name}</strong>
+                  <span className="mode-badge">{selectedScene.crowd.label}</span>
+                </div>
+                <span className="live-scene-selector-loc">
+                  <MapPin size={12} />
+                  {selectedScene.location} · {selectedScene.timeOfDay}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => openScenePickerFor({ kind: 'createLive' })}
+              >
+                Change Scene
+              </button>
             </div>
           </div>
 
@@ -400,6 +437,11 @@ export const JoinLiveScreen: React.FC = () => {
                               </span>
                               <span>·</span>
                               <span>{MODE_LABELS[room.mode]?.title ?? room.mode}</span>
+                              <span>·</span>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <MapPin size={11} />
+                                {getSceneById(room.sceneId).name}
+                              </span>
                             </div>
                           </div>
                           <span
@@ -508,8 +550,11 @@ export const LiveLobbyScreen: React.FC = () => {
             <h2>{liveRoom.name}</h2>
             <p>
               {MODE_LABELS[liveRoom.mode]?.title} ·{' '}
-              {liveRoom.visibility === 'public' ? 'Public Room' : 'Private Invite Room'} ·{' '}
-              Up to {liveRoom.maxPlayers} players
+              <strong style={{ color: 'var(--accent-aqua)' }}>
+                {getSceneById(liveRoom.sceneId).name}
+              </strong>{' '}
+              · {liveRoom.visibility === 'public' ? 'Public Room' : 'Private Invite Room'} · Up to{' '}
+              {liveRoom.maxPlayers} players
             </p>
           </div>
           <button className="btn-secondary" onClick={leaveLiveMatch}>

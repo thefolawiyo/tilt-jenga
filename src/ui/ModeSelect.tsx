@@ -19,10 +19,7 @@ import { TopHubNav } from './TopHubNav';
 type ActiveTab = 'solo' | 'passAndPlay' | 'challenge';
 
 export const ModeSelect: React.FC = () => {
-  const setScreen = useGameStore((s) => s.setScreen);
-  const startSoloGame = useGameStore((s) => s.startSoloGame);
-  const startPassAndPlayGame = useGameStore((s) => s.startPassAndPlayGame);
-  const startChallengeGame = useGameStore((s) => s.startChallengeGame);
+  const openScenePickerFor = useGameStore((s) => s.openScenePickerFor);
   const bestSoloScore = useGameStore((s) => s.bestSoloScore);
   const soloAiWins = useGameStore((s) => s.soloAiWins);
   const completedChallenges = useGameStore((s) => s.completedChallenges);
@@ -69,7 +66,7 @@ export const ModeSelect: React.FC = () => {
               soundEngine.playUiClick(1.0);
               setSelectedTab('solo');
             }}
-            onDoubleClick={() => startSoloGame(soloChoice, aiDiff)}
+            onDoubleClick={() => openScenePickerFor({ kind: 'solo', opponent: soloChoice, difficulty: aiDiff })}
           >
             <div>
               <div className="mode-card-top">
@@ -237,9 +234,9 @@ export const ModeSelect: React.FC = () => {
 
               <button
                 className="btn-primary"
-                onClick={() => startSoloGame(soloChoice, aiDiff)}
+                onClick={() => openScenePickerFor({ kind: 'solo', opponent: soloChoice, difficulty: aiDiff })}
               >
-                {soloChoice === 'computer' ? 'Start Vs. Computer' : 'Start Solo Run'}
+                Choose Location
                 <ArrowRight size={16} />
               </button>
             </div>
@@ -297,9 +294,14 @@ export const ModeSelect: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 className="btn-primary"
-                onClick={() => startPassAndPlayGame(playerNames.slice(0, playerCount))}
+                onClick={() =>
+                  openScenePickerFor({
+                    kind: 'passAndPlay',
+                    playerNames: playerNames.slice(0, playerCount),
+                  })
+                }
               >
-                Launch Match
+                Choose Location
                 <ArrowRight size={16} />
               </button>
             </div>
@@ -327,7 +329,7 @@ export const ModeSelect: React.FC = () => {
                   <button
                     key={ch.id}
                     className="challenge-item"
-                    onClick={() => startChallengeGame(ch.id)}
+                    onClick={() => openScenePickerFor({ kind: 'challenge', challengeId: ch.id })}
                   >
                     <div>
                       <div className="challenge-item-head">

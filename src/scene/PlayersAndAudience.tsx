@@ -6,6 +6,8 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { useGameStore } from '../store/useGameStore';
 import { PALETTE, PEDESTAL_HEIGHT, PEDESTAL_TOP_Y } from '../engine/constants';
 import { CrowdTextileSet, getCrowdTextiles } from '../engine/crowdTextures';
+import { getSceneById, SceneCrowdConfig } from '../engine/scenes';
+import { SceneId } from '../types/game';
 
 const FLOOR_Y = PEDESTAL_TOP_Y - PEDESTAL_HEIGHT - 2.3; // -3.4
 const RING_HALF = 7.45;
@@ -761,14 +763,15 @@ const CulturalCrowdBucket: React.FC<{
 };
 
 /**
- * Packed Diverse International Boxing-Ring Crowd (African, Arabian & Western styles mixed organically!)
+ * Scene-Aware Diverse Instanced Crowd (scales density, placement layout & cultural attire per scene!)
  */
 const PackedBoxingCrowd: React.FC<{
+  crowdConfig: SceneCrowdConfig;
   moodRef: React.MutableRefObject<CrowdMood>;
   cheerBoostRef: React.MutableRefObject<number>;
   reducedMotion: boolean;
   graphicsQuality: 'low' | 'medium' | 'high';
-}> = ({ moodRef, cheerBoostRef, reducedMotion, graphicsQuality }) => {
+}> = ({ crowdConfig, moodRef, cheerBoostRef, reducedMotion, graphicsQuality }) => {
   const rpmGltf = useGLTF('/models/rpm_human.glb');
   const textiles = useMemo(() => getCrowdTextiles(), []);
 
@@ -828,7 +831,7 @@ const PackedBoxingCrowd: React.FC<{
     };
   }, [rpmGeos]);
 
-  // Partition ~190 spectators across 8 vibrant international cultural styles
+  // Partition spectators across cultural styles & scene-specific layout
   const buckets = useMemo(() => {
     const grouped: Record<CultureStyle, CrowdMemberSpec[]> = {
       african_kente: [],
@@ -841,22 +844,69 @@ const PackedBoxingCrowd: React.FC<{
       western_streetwear: [],
     };
 
-    const weightedCultures: CultureStyle[] = [
-      'african_kente',
-      'african_kente',
-      'african_ankara_gele',
-      'african_ankara_gele',
-      'african_dashiki',
-      'arabian_shemagh',
-      'arabian_shemagh',
-      'arabian_ghutra_bisht',
-      'arabian_hijab',
-      'arabian_hijab',
-      'western_blazer',
-      'western_blazer',
-      'western_streetwear',
-      'western_streetwear',
-    ];
+    const targetCount =
+      crowdConfig.layout === 'none'
+        ? 0
+        : graphicsQuality === 'high'
+          ? crowdConfig.crowdCountHigh
+          : graphicsQuality === 'medium'
+            ? Math.round((crowdConfig.crowdCountHigh + crowdConfig.crowdCountLow) * 0.5)
+            : crowdConfig.crowdCountLow;
+
+    if (targetCount <= 0) {
+      return grouped;
+    }
+
+    const weightedCultures: CultureStyle[] =
+      crowdConfig.culturalMix === 'lagos'
+        ? [
+            'african_kente',
+            'african_kente',
+            'african_kente',
+            'african_ankara_gele',
+            'african_ankara_gele',
+            'african_ankara_gele',
+            'african_dashiki',
+            'african_dashiki',
+            'western_streetwear',
+            'western_blazer',
+          ]
+        : crowdConfig.culturalMix === 'paris'
+          ? [
+              'western_blazer',
+              'western_blazer',
+              'western_blazer',
+              'western_streetwear',
+              'western_streetwear',
+              'african_ankara_gele',
+              'arabian_hijab',
+              'african_kente',
+            ]
+          : crowdConfig.culturalMix === 'casual-indoor'
+            ? [
+                'western_streetwear',
+                'western_streetwear',
+                'western_blazer',
+                'western_blazer',
+                'african_dashiki',
+                'arabian_hijab',
+              ]
+            : [
+                'african_kente',
+                'african_kente',
+                'african_ankara_gele',
+                'african_ankara_gele',
+                'african_dashiki',
+                'arabian_shemagh',
+                'arabian_shemagh',
+                'arabian_ghutra_bisht',
+                'arabian_hijab',
+                'arabian_hijab',
+                'western_blazer',
+                'western_blazer',
+                'western_streetwear',
+                'western_streetwear',
+              ];
 
     const africanSkins = ['#69422B', '#7C4F35', '#573421', '#8B5A3C'];
     const arabianSkins = ['#D4A582', '#C3926D', '#DFB696', '#B58360'];
@@ -869,113 +919,161 @@ const PackedBoxingCrowd: React.FC<{
     const geleTints = ['#FFD56B', '#6AE0D2', '#FF8E6E', '#F0A6CA', '#FFFFFF'];
     const hairColors = ['#181412', '#3B281E', '#6B482C', '#A68352', '#262322', '#807D7A'];
 
-    const maxRows = graphicsQuality === 'high' ? 4 : graphicsQuality === 'medium' ? 3 : 2;
-    const spacing = graphicsQuality === 'high' ? 2.18 : graphicsQuality === 'medium' ? 2.55 : 3.2;
-
-    let seed = 42;
+    let seed = 42 + crowdConfig.layout.length * 17;
     const nextRand = () => {
       seed = (seed * 1664525 + 1013904223) % 4294967296;
       return seed / 4294967296;
     };
     const pick = <T,>(arr: T[]) => arr[Math.floor(nextRand() * arr.length)];
 
-    for (let row = 0; row < maxRows; row++) {
-      const dist = 11.4 + row * 2.45;
-      const rowY = FLOOR_Y + 0.55 + row * 1.48;
-      const halfSpan = dist - 0.8;
-      const countPerSide = Math.max(5, Math.floor((halfSpan * 2) / spacing));
+    // Generate scene-appropriate spectator coordinates
+    const placements: Array<{ x: number; y: number; z: number; row: number }> = [];
 
-      for (let side = 0; side < 4; side++) {
-        for (let i = 0; i <= countPerSide; i++) {
-          const frac = i / countPerSide;
-          const along = -halfSpan + frac * (halfSpan * 2) + (nextRand() - 0.5) * 0.42;
-          const depthJitter = (nextRand() - 0.5) * 0.32;
+    if (crowdConfig.layout === 'stadium-bleachers') {
+      const maxRows = graphicsQuality === 'high' ? 4 : graphicsQuality === 'medium' ? 3 : 2;
+      const spacing = graphicsQuality === 'high' ? 2.18 : graphicsQuality === 'medium' ? 2.55 : 3.2;
 
-          let x = 0;
-          let z = 0;
-          if (side === 0) {
-            x = along;
-            z = -(dist + depthJitter);
-          } else if (side === 1) {
-            x = -(dist + depthJitter);
-            z = along;
-          } else if (side === 2) {
-            x = dist + depthJitter;
-            z = along;
-          } else {
-            x = along;
-            z = dist + depthJitter;
+      for (let row = 0; row < maxRows; row++) {
+        const dist = 11.4 + row * 2.45;
+        const rowY = FLOOR_Y + 0.55 + row * 1.48;
+        const halfSpan = dist - 0.8;
+        const countPerSide = Math.max(5, Math.floor((halfSpan * 2) / spacing));
+
+        for (let side = 0; side < 4; side++) {
+          for (let i = 0; i <= countPerSide; i++) {
+            const frac = i / countPerSide;
+            const along = -halfSpan + frac * (halfSpan * 2) + (nextRand() - 0.5) * 0.42;
+            const depthJitter = (nextRand() - 0.5) * 0.32;
+            let x = 0;
+            let z = 0;
+            if (side === 0) {
+              x = along;
+              z = -(dist + depthJitter);
+            } else if (side === 1) {
+              x = -(dist + depthJitter);
+              z = along;
+            } else if (side === 2) {
+              x = dist + depthJitter;
+              z = along;
+            } else {
+              x = along;
+              z = dist + depthJitter;
+            }
+            if (x > 6.5 && z > 6.5 && row < 2) continue;
+            placements.push({ x, y: rowY, z, row });
           }
-
-          if (x > 6.5 && z > 6.5 && row < 2) continue;
-
-          const culture = pick(weightedCultures);
-          let skinHex = '#FFFFFF';
-          let topHex = '#FFFFFF';
-          let botHex = '#FFFFFF';
-          let hwHex = '#FFFFFF';
-
-          if (culture === 'african_kente') {
-            skinHex = pick(africanSkins);
-            topHex = pick(['#FFFFFF', '#F7E7C4', '#E8F0E5']);
-            botHex = topHex;
-            hwHex = '#FFFFFF';
-          } else if (culture === 'african_ankara_gele') {
-            skinHex = pick(africanSkins);
-            topHex = pick(['#FFFFFF', '#FFE8C8', '#DFF7F2']);
-            botHex = pick(['#FFFFFF', '#F5D5D5']);
-            hwHex = pick(geleTints);
-          } else if (culture === 'african_dashiki') {
-            skinHex = pick(africanSkins);
-            topHex = pick(['#FFFFFF', '#DCE6FF', '#F2E5C6']);
-            botHex = topHex;
-            hwHex = topHex;
-          } else if (culture === 'arabian_shemagh') {
-            skinHex = pick(arabianSkins);
-            topHex = pick(['#FFFFFF', '#F6F1E6', '#EFEAD8']);
-            botHex = topHex;
-          } else if (culture === 'arabian_ghutra_bisht') {
-            skinHex = pick(arabianSkins);
-            topHex = pick(['#FFFFFF', '#D8D4C8', '#C5CBD8']);
-            botHex = '#F5EFE0';
-          } else if (culture === 'arabian_hijab') {
-            skinHex = pick(arabianSkins);
-            topHex = pick(abayaTints);
-            botHex = topHex;
-            hwHex = pick(hijabColors);
-          } else if (culture === 'western_streetwear') {
-            skinHex = pick(westernSkins);
-            topHex = pick(westernStreetColors);
-            botHex = pick(['#293040', '#383B47', '#4B443E']);
-            hwHex = pick(hairColors);
-          } else {
-            skinHex = pick(westernSkins);
-            topHex = pick(westernBlazerColors);
-            botHex = pick(['#252B3B', '#333642', '#3F3A36']);
-            hwHex = pick(hairColors);
-          }
-
-          grouped[culture].push({
-            culture,
-            x,
-            y: rowY,
-            z,
-            rotY: Math.atan2(-x, -z) + (nextRand() - 0.5) * 0.22,
-            scale: 3.12 + nextRand() * 0.44,
-            phase: Math.atan2(z, x) * 2.0 + row * 0.65 + nextRand() * 1.5,
-            skinColor: new THREE.Color(skinHex),
-            topColor: new THREE.Color(topHex),
-            bottomColor: new THREE.Color(botHex),
-            headwearColor: new THREE.Color(hwHex),
-          });
         }
+      }
+    } else if (crowdConfig.layout === 'plaza-ring') {
+      // Natural open-air ground-level spectators encircling the market square or Paris plaza
+      for (let i = 0; i < targetCount; i++) {
+        const ring = i % 2;
+        const angle = (i / targetCount) * Math.PI * 2 + (nextRand() - 0.5) * 0.18;
+        const radius = 10.6 + ring * 2.15 + (nextRand() - 0.5) * 0.65;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        // Keep primary front-right camera corridor clear
+        if (x > 5.0 && z > 5.0) continue;
+        placements.push({ x, y: FLOOR_Y, z, row: ring });
+      }
+    } else if (crowdConfig.layout === 'street-sides') {
+      // Spectators clustered organically along Lagos Island sidewalks (clear of asphalt lane)
+      for (let i = 0; i < targetCount; i++) {
+        const side = i % 3; // back sidewalk, left curb, right curb
+        let x = 0;
+        let z = 0;
+        if (side === 0) {
+          x = (nextRand() - 0.5) * 20;
+          z = -9.6 - nextRand() * 2.1;
+        } else if (side === 1) {
+          x = -10.5 - nextRand() * 3.2;
+          z = -8.5 + nextRand() * 16.5;
+        } else {
+          x = 10.5 + nextRand() * 3.2;
+          z = -8.5 + nextRand() * 14.5;
+        }
+        if (x > 6.0 && z > 5.5) continue;
+        placements.push({ x, y: FLOOR_Y, z, row: i % 2 });
+      }
+    } else {
+      // Intimate perimeter arc (Neighbourhood Bar small group)
+      for (let i = 0; i < targetCount; i++) {
+        const frac = targetCount > 1 ? i / (targetCount - 1) : 0.5;
+        const angle = -Math.PI * 0.92 + frac * (Math.PI * 1.15);
+        const radius = 10.8 + (i % 2) * 1.5;
+        const x = Math.cos(angle) * radius + (nextRand() - 0.5) * 0.5;
+        const z = Math.sin(angle) * radius + (nextRand() - 0.5) * 0.5;
+        placements.push({ x, y: FLOOR_Y, z, row: 0 });
       }
     }
 
-    return grouped;
-  }, [graphicsQuality]);
+    for (const pt of placements) {
+      const { x, y: rowY, z, row } = pt;
+      const culture = pick(weightedCultures);
+      let skinHex = '#FFFFFF';
+      let topHex = '#FFFFFF';
+      let botHex = '#FFFFFF';
+      let hwHex = '#FFFFFF';
 
-  if (!rpmGeos) return null;
+      if (culture === 'african_kente') {
+        skinHex = pick(africanSkins);
+        topHex = pick(['#FFFFFF', '#F7E7C4', '#E8F0E5']);
+        botHex = topHex;
+        hwHex = '#FFFFFF';
+      } else if (culture === 'african_ankara_gele') {
+        skinHex = pick(africanSkins);
+        topHex = pick(['#FFFFFF', '#FFE8C8', '#DFF7F2']);
+        botHex = pick(['#FFFFFF', '#F5D5D5']);
+        hwHex = pick(geleTints);
+      } else if (culture === 'african_dashiki') {
+        skinHex = pick(africanSkins);
+        topHex = pick(['#FFFFFF', '#DCE6FF', '#F2E5C6']);
+        botHex = topHex;
+        hwHex = topHex;
+      } else if (culture === 'arabian_shemagh') {
+        skinHex = pick(arabianSkins);
+        topHex = pick(['#FFFFFF', '#F6F1E6', '#EFEAD8']);
+        botHex = topHex;
+      } else if (culture === 'arabian_ghutra_bisht') {
+        skinHex = pick(arabianSkins);
+        topHex = pick(['#FFFFFF', '#D8D4C8', '#C5CBD8']);
+        botHex = '#F5EFE0';
+      } else if (culture === 'arabian_hijab') {
+        skinHex = pick(arabianSkins);
+        topHex = pick(abayaTints);
+        botHex = topHex;
+        hwHex = pick(hijabColors);
+      } else if (culture === 'western_streetwear') {
+        skinHex = pick(westernSkins);
+        topHex = pick(westernStreetColors);
+        botHex = pick(['#293040', '#383B47', '#4B443E']);
+        hwHex = pick(hairColors);
+      } else {
+        skinHex = pick(westernSkins);
+        topHex = pick(westernBlazerColors);
+        botHex = pick(['#252B3B', '#333642', '#3F3A36']);
+        hwHex = pick(hairColors);
+      }
+
+      grouped[culture].push({
+        culture,
+        x,
+        y: rowY,
+        z,
+        rotY: Math.atan2(-x, -z) + (nextRand() - 0.5) * 0.22,
+        scale: 3.12 + nextRand() * 0.44,
+        phase: Math.atan2(z, x) * 2.0 + row * 0.65 + nextRand() * 1.5,
+        skinColor: new THREE.Color(skinHex),
+        topColor: new THREE.Color(topHex),
+        bottomColor: new THREE.Color(botHex),
+        headwearColor: new THREE.Color(hwHex),
+      });
+    }
+
+    return grouped;
+  }, [graphicsQuality, crowdConfig]);
+
+  if (!rpmGeos || crowdConfig.layout === 'none') return null;
 
   return (
     <group>
@@ -1227,7 +1325,8 @@ const BoxingRingArena: React.FC = () => {
   );
 };
 
-export const PlayersAndAudience: React.FC = () => {
+export const PlayersAndAudience: React.FC<{ activeSceneId: SceneId }> = ({ activeSceneId }) => {
+  const scene = useMemo(() => getSceneById(activeSceneId), [activeSceneId]);
   const mode = useGameStore((s) => s.mode);
   const soloOpponent = useGameStore((s) => s.soloOpponent);
   const players = useGameStore((s) => s.players);
@@ -1355,9 +1454,17 @@ export const PlayersAndAudience: React.FC = () => {
     });
   }, [mode, soloOpponent, players, currentPlayerIndex]);
 
-  // Front-row VIP rigged spectators leaning right against the boxing ring ropes — richly multicultural!
+  // Scene-aware foreground rigged spectators (0 for no-audience rooms, 4-6 for quiet spots, up to 14 for packed arena!)
   const ringsideVips = useMemo(() => {
-    const count = graphicsQuality === 'high' ? 14 : graphicsQuality === 'medium' ? 10 : 6;
+    const { crowd } = scene;
+    if (crowd.level === 'none') return [];
+
+    const count =
+      graphicsQuality === 'high'
+        ? crowd.vipCountHigh
+        : graphicsQuality === 'medium'
+          ? Math.round((crowd.vipCountHigh + crowd.vipCountLow) * 0.5)
+          : crowd.vipCountLow;
 
     const slots: Array<{
       x: number;
@@ -1367,25 +1474,50 @@ export const PlayersAndAudience: React.FC = () => {
       skinTint: string;
       outfitTint: string;
       hairColor: string;
-    }> = [
-      { x: -6.8, z: -9.1, model: 'rpm', culture: 'african_kente', skinTint: '#6B422C', outfitTint: '#FFFFFF', hairColor: '#181412' },
-      { x: -4.2, z: -9.0, model: 'rpm', culture: 'arabian_shemagh', skinTint: '#D4A582', outfitTint: '#FFFFFF', hairColor: '#1C1714' },
-      { x: -1.5, z: -9.15, model: 'michelle', culture: 'african_ankara_gele', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
-      { x: 1.3, z: -9.0, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#7C4F35', outfitTint: '#F2C14E', hairColor: '#181412' },
-      { x: 4.0, z: -9.1, model: 'rpm', culture: 'western_blazer', skinTint: '#EBC6AD', outfitTint: '#5B2333', hairColor: '#5C3C24' },
-      { x: 6.6, z: -9.0, model: 'rpm', culture: 'arabian_hijab', skinTint: '#D8AD8A', outfitTint: '#E5D3B3', hairColor: '#1A1614' },
-      { x: -9.1, z: -6.2, model: 'rpm', culture: 'african_dashiki', skinTint: '#5F3823', outfitTint: '#FFFFFF', hairColor: '#181412' },
-      { x: -9.0, z: -3.2, model: 'rpm', culture: 'western_streetwear', skinTint: '#F2D4C0', outfitTint: '#36588F', hairColor: '#8B683E' },
-      { x: -9.15, z: 0.2, model: 'rpm', culture: 'arabian_ghutra_bisht', skinTint: '#C89874', outfitTint: '#FFFFFF', hairColor: '#181412' },
-      { x: -9.0, z: 3.6, model: 'michelle', culture: 'african_ankara_gele', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
-      { x: 9.1, z: -6.0, model: 'rpm', culture: 'arabian_shemagh', skinTint: '#CFA07C', outfitTint: '#FFFFFF', hairColor: '#1C1714' },
-      { x: 9.0, z: -2.8, model: 'rpm', culture: 'african_kente', skinTint: '#764B32', outfitTint: '#FFFFFF', hairColor: '#181412' },
-      { x: 9.15, z: 0.5, model: 'rpm', culture: 'western_blazer', skinTint: '#E5BFA4', outfitTint: '#2E4F45', hairColor: '#2B221D' },
-      { x: -5.5, z: 9.1, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#6E442D', outfitTint: '#64E5D2', hairColor: '#181412' },
-    ];
+    }> =
+      crowd.culturalMix === 'lagos'
+        ? [
+            { x: -6.8, z: -9.1, model: 'rpm', culture: 'african_kente', skinTint: '#6B422C', outfitTint: '#FFFFFF', hairColor: '#181412' },
+            { x: -3.6, z: -9.2, model: 'michelle', culture: 'african_ankara_gele', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
+            { x: 0.4, z: -9.1, model: 'rpm', culture: 'african_dashiki', skinTint: '#5F3823', outfitTint: '#FFFFFF', hairColor: '#181412' },
+            { x: 4.1, z: -9.0, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#7C4F35', outfitTint: '#F2C14E', hairColor: '#181412' },
+            { x: -9.2, z: -5.4, model: 'rpm', culture: 'african_kente', skinTint: '#6E442D', outfitTint: '#FFFFFF', hairColor: '#181412' },
+            { x: 9.1, z: -5.2, model: 'rpm', culture: 'western_streetwear', skinTint: '#764B32', outfitTint: '#2F7A78', hairColor: '#181412' },
+            { x: -9.0, z: -1.4, model: 'michelle', culture: 'african_ankara_gele', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
+            { x: 9.2, z: -1.0, model: 'rpm', culture: 'african_dashiki', skinTint: '#69422B', outfitTint: '#FFFFFF', hairColor: '#181412' },
+            { x: -9.0, z: 3.1, model: 'rpm', culture: 'western_blazer', skinTint: '#8B5A3C', outfitTint: '#5B2333', hairColor: '#181412' },
+            { x: 9.0, z: 2.8, model: 'rpm', culture: 'african_kente', skinTint: '#573421', outfitTint: '#FFFFFF', hairColor: '#181412' },
+            { x: -5.5, z: 9.0, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#6E442D', outfitTint: '#64E5D2', hairColor: '#181412' },
+            { x: 1.5, z: -9.3, model: 'rpm', culture: 'arabian_shemagh', skinTint: '#D4A582', outfitTint: '#FFFFFF', hairColor: '#1C1714' },
+          ]
+        : crowd.culturalMix === 'casual-indoor'
+          ? [
+              { x: -5.6, z: -8.9, model: 'rpm', culture: 'western_streetwear', skinTint: '#EBC6AD', outfitTint: '#2F7A78', hairColor: '#3B281E' },
+              { x: -1.4, z: -9.2, model: 'michelle', culture: 'western_streetwear', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
+              { x: 3.2, z: -9.0, model: 'rpm', culture: 'western_blazer', skinTint: '#7C4F35', outfitTint: '#263B5E', hairColor: '#181412' },
+              { x: -8.9, z: -4.2, model: 'rpm', culture: 'western_streetwear', skinTint: '#D8AD8A', outfitTint: '#4A558A', hairColor: '#1C1714' },
+              { x: 8.8, z: -4.4, model: 'rpm', culture: 'western_blazer', skinTint: '#F2D4C0', outfitTint: '#2E473B', hairColor: '#6B482C' },
+              { x: -8.7, z: 1.8, model: 'rpm', culture: 'african_dashiki', skinTint: '#6B422C', outfitTint: '#FFFFFF', hairColor: '#181412' },
+            ]
+          : [
+              { x: -6.8, z: -9.1, model: 'rpm', culture: 'african_kente', skinTint: '#6B422C', outfitTint: '#FFFFFF', hairColor: '#181412' },
+              { x: -4.2, z: -9.0, model: 'rpm', culture: 'arabian_shemagh', skinTint: '#D4A582', outfitTint: '#FFFFFF', hairColor: '#1C1714' },
+              { x: -1.5, z: -9.15, model: 'michelle', culture: 'african_ankara_gele', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
+              { x: 1.3, z: -9.0, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#7C4F35', outfitTint: '#F2C14E', hairColor: '#181412' },
+              { x: 4.0, z: -9.1, model: 'rpm', culture: 'western_blazer', skinTint: '#EBC6AD', outfitTint: '#5B2333', hairColor: '#5C3C24' },
+              { x: 6.6, z: -9.0, model: 'rpm', culture: 'arabian_hijab', skinTint: '#D8AD8A', outfitTint: '#E5D3B3', hairColor: '#1A1614' },
+              { x: -9.1, z: -6.2, model: 'rpm', culture: 'african_dashiki', skinTint: '#5F3823', outfitTint: '#FFFFFF', hairColor: '#181412' },
+              { x: -9.0, z: -3.2, model: 'rpm', culture: 'western_streetwear', skinTint: '#F2D4C0', outfitTint: '#36588F', hairColor: '#8B683E' },
+              { x: -9.15, z: 0.2, model: 'rpm', culture: 'arabian_ghutra_bisht', skinTint: '#C89874', outfitTint: '#FFFFFF', hairColor: '#181412' },
+              { x: -9.0, z: 3.6, model: 'michelle', culture: 'african_ankara_gele', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
+              { x: 9.1, z: -6.0, model: 'rpm', culture: 'arabian_shemagh', skinTint: '#CFA07C', outfitTint: '#FFFFFF', hairColor: '#1C1714' },
+              { x: 9.0, z: -2.8, model: 'rpm', culture: 'african_kente', skinTint: '#764B32', outfitTint: '#FFFFFF', hairColor: '#181412' },
+              { x: 9.15, z: 0.5, model: 'rpm', culture: 'western_blazer', skinTint: '#E5BFA4', outfitTint: '#2E4F45', hairColor: '#2B221D' },
+              { x: -5.5, z: 9.1, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#6E442D', outfitTint: '#64E5D2', hairColor: '#181412' },
+            ];
 
     return slots.slice(0, count).map((s, i) => ({
-      id: `vip-fan-${i}`,
+      id: `vip-fan-${activeSceneId}-${i}`,
       model: s.model,
       culture: s.culture,
       skinTint: s.skinTint,
@@ -1396,14 +1528,14 @@ export const PlayersAndAudience: React.FC = () => {
       phaseOffset: i * 0.9,
       scaleMultiplier: 0.96 + (i % 3) * 0.035,
     }));
-  }, [graphicsQuality]);
+  }, [graphicsQuality, scene, activeSceneId]);
 
   return (
     <group>
-      {/* Boxing Ring Structure, Ropes, Posts, Stadium Bleachers & Overhead Lights */}
-      <BoxingRingArena />
+      {/* Preserve iconic Boxing Ring Arena structure exclusively for the Boxing Ring scene */}
+      {activeSceneId === 'boxing-ring' && <BoxingRingArena />}
 
-      {/* Realistic 3D Human Players standing close around the Jenga Pedestal */}
+      {/* Realistic 3D Human Players standing around the Jenga Pedestal */}
       {ringPlayers.map((p) => (
         <RiggedRealisticHuman
           key={p.id}
@@ -1424,7 +1556,7 @@ export const PlayersAndAudience: React.FC = () => {
         />
       ))}
 
-      {/* Front-Row Animated Multicultural VIP Fans right against the Boxing Ring Ropes */}
+      {/* Environment-Appropriate Animated Foreground Spectators (empty when scene has no audience!) */}
       {ringsideVips.map((vip) => (
         <RiggedRealisticHuman
           key={vip.id}
@@ -1443,20 +1575,23 @@ export const PlayersAndAudience: React.FC = () => {
         />
       ))}
 
-      {/* Packed 4-Tier Multicultural Boxing-Ring Stadium Crowd (African, Arabian & Western Styles) */}
+      {/* Scene-Aware Instanced Crowd (disabled automatically for few/none audience locations) */}
       <PackedBoxingCrowd
+        crowdConfig={scene.crowd}
         moodRef={moodRef}
         cheerBoostRef={cheerBoostRef}
         reducedMotion={reducedMotion}
         graphicsQuality={graphicsQuality}
       />
 
-      {/* Fight-Night Arena Camera Flashes in the Stands */}
-      <ArenaCameraFlashes
-        moodRef={moodRef}
-        cheerBoostRef={cheerBoostRef}
-        reducedMotion={reducedMotion}
-      />
+      {/* Fight-Night Arena Camera Flashes (Boxing Ring only) */}
+      {scene.crowd.cameraFlashes && (
+        <ArenaCameraFlashes
+          moodRef={moodRef}
+          cheerBoostRef={cheerBoostRef}
+          reducedMotion={reducedMotion}
+        />
+      )}
     </group>
   );
 };

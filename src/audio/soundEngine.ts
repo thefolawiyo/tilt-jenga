@@ -1,4 +1,5 @@
-import { GameSettings } from '../types/game';
+import { GameSettings, SceneId } from '../types/game';
+import { getSceneById } from '../engine/scenes';
 
 /**
  * Studio-Mastered Procedural Audio Engine for TILT
@@ -19,7 +20,11 @@ class SoundEngine {
   private musicGain: GainNode | null = null;
   private musicFilter: BiquadFilterNode | null = null;
   private crowdBedGain: GainNode | null = null;
+  private bedLowFilter: BiquadFilterNode | null = null;
+  private bedHighFilter: BiquadFilterNode | null = null;
   private reverbNode: ConvolverNode | null = null;
+  private activeSceneId: SceneId = 'boxing-ring';
+  private parkChirpTimerId: number | null = null;
 
   private noiseBuffer: AudioBuffer | null = null;
   private frictionGain: GainNode | null = null;
@@ -151,13 +156,14 @@ class SoundEngine {
     this.noiseBuffer = buffer;
   }
 
-  /** Soft continuous boxing-arena audience murmur while inside a match (smooth low-Q room air, zero resonance) */
+  /** Soft continuous location-tailored ambient bed (smooth low-Q room/outdoor air, zero resonance) */
   private startCrowdAmbianceBed() {
     if (!this.ctx || !this.noiseBuffer || !this.crowdBedGain) return;
+    const scene = getSceneById(this.activeSceneId);
 
     const bands = [
-      { freq: 620, q: 0.65, pan: -0.35, gain: 0.34 },
-      { freq: 1180, q: 0.75, pan: 0.35, gain: 0.24 },
+      { key: 'low' as const, freq: scene.audio.bedLowFreq, q: 0.65, pan: -0.35, gain: 0.34 },
+      { key: 'high' as const, freq: scene.audio.bedHighFreq, q: 0.75, pan: 0.35, gain: 0.24 },
     ];
 
     bands.forEach((b) => {
@@ -169,6 +175,9 @@ class SoundEngine {
       filter.type = 'bandpass';
       filter.frequency.value = b.freq;
       filter.Q.value = b.q;
+
+      if (b.key === 'low') this.bedLowFilter = filter;
+      else this.bedHighFilter = filter;
 
       const panner = this.ctx!.createStereoPanner();
       panner.pan.value = b.pan;
@@ -184,6 +193,64 @@ class SoundEngine {
     });
   }
 
+  /** Delicate pure-sine outdoor birdsong motif exclusively for Public Park ambience */
+  private playSoftParkChirp() {
+    if (!this.ctx || this.ctx.state !== 'running' || this.settings.muted) return;
+    const scene = getSceneById(this.activeSceneId);
+    if (!scene.audio.hasBirdsong) return;
+
+    const now = this.ctx.currentTime + 0.04;
+    const base = 2400 + Math.random() * 900;
+    const pan = (Math.random() - 0.5) * 1.4;
+    const notes = [base, base * 1.18];
+
+    notes.forEach((f, idx) => {
+      const t = now + idx * 0.11;
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, t);
+      osc.frequency.exponentialRampToValueAtTime(f * 1.12, t + 0.075);
+
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.022, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0002, t + 0.095);
+
+      osc.connect(g);
+      this.routeSfx(g, pan, 0.45);
+      osc.start(t);
+      osc.stop(t + 0.11);
+    });
+  }
+
+  public setSceneAmbience(sceneId: SceneId) {
+    this.activeSceneId = sceneId;
+    const scene = getSceneById(sceneId);
+
+    // Manage gentle park birdsong interval cleanly
+    if (this.parkChirpTimerId !== null) {
+      window.clearInterval(this.parkChirpTimerId);
+      this.parkChirpTimerId = null;
+    }
+    if (scene.audio.hasBirdsong && typeof window !== 'undefined') {
+      this.parkChirpTimerId = window.setInterval(() => {
+        if (Math.random() < 0.65) {
+          this.playSoftParkChirp();
+        }
+      }, 4200);
+    }
+
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (this.bedLowFilter) {
+      this.bedLowFilter.frequency.setTargetAtTime(scene.audio.bedLowFreq, now, 0.35);
+    }
+    if (this.bedHighFilter) {
+      this.bedHighFilter.frequency.setTargetAtTime(scene.audio.bedHighFreq, now, 0.35);
+    }
+    this.setArenaState(this.inGameplay, this.tensionActive);
+  }
+
   public unlock() {
     const ctx = this.ensureContext();
     if (ctx && !this.musicStarted) {
@@ -196,11 +263,16 @@ class SoundEngine {
     this.tensionActive = tensionActive;
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
+    const scene = getSceneById(this.activeSceneId);
 
-    // Hush the crowd murmur slightly in tense dragging moments, raise softly when match is live
+    // Tailor continuous ambience level to the selected location & gameplay tension
     if (this.crowdBedGain) {
-      const targetBed = !inGameplay ? 0.015 : tensionActive ? 0.025 : 0.075;
-      this.crowdBedGain.gain.setTargetAtTime(targetBed, now, 0.25);
+      const targetBed = !inGameplay
+        ? scene.audio.bedBaseGain
+        : tensionActive
+          ? scene.audio.bedTensionGain
+          : scene.audio.bedGameplayGain;
+      this.crowdBedGain.gain.setTargetAtTime(targetBed, now, 0.32);
     }
 
     // Duck music brightness gently when player is actively sliding a risky block
@@ -607,8 +679,11 @@ class SoundEngine {
       overtone.stop(t + 0.72);
     });
 
-    // 2. Loud, Crisp Thunderous Applause (64 individually panned palm-slap claps across stereo bleachers)
-    const clapCount = Math.round(44 + intensity * 24);
+    // 2. Scene-aware Applause (scales naturally from packed stadium to intimate claps, or silent in no-audience rooms!)
+    const crowdScale = getSceneById(this.activeSceneId).crowd.audioReactionScale;
+    if (crowdScale <= 0.01) return;
+
+    const clapCount = Math.max(5, Math.round((44 + intensity * 24) * crowdScale));
     for (let i = 0; i < clapCount; i++) {
       const delay = 0.03 + Math.random() * 1.85;
       const t = now + delay;
@@ -624,7 +699,8 @@ class SoundEngine {
       bp.Q.value = 1.25;
 
       const g = ctx.createGain();
-      const peak = (0.18 + Math.random() * 0.12) * intensity * (0.45 + swell * 0.65);
+      const peak =
+        (0.18 + Math.random() * 0.12) * intensity * (0.45 + swell * 0.65) * Math.max(0.35, crowdScale);
       g.gain.setValueAtTime(0.0005, t);
       g.gain.linearRampToValueAtTime(peak, t + 0.0025);
       g.gain.exponentialRampToValueAtTime(peak * 0.34, t + 0.011);
@@ -637,11 +713,12 @@ class SoundEngine {
       src.start(t, Math.random() * 4.5, 0.08);
     }
 
-    // 3. Smooth Airy Packed-Stadium Applause & Cheer Swell (wide low-Q filtered noise, zero harsh resonance)
+    // 3. Smooth Airy Applause Swell (only for medium/large/very-large crowds)
+    if (crowdScale < 0.45) return;
     const roarBands = [
-      { f0: 950, f1: 1280, q: 0.9, pan: -0.45, vol: 0.24 },
-      { f0: 1750, f1: 2250, q: 0.85, pan: 0.45, vol: 0.22 },
-      { f0: 2700, f1: 3150, q: 0.8, pan: 0.0, vol: 0.14 },
+      { f0: 950, f1: 1280, q: 0.9, pan: -0.45, vol: 0.24 * crowdScale },
+      { f0: 1750, f1: 2250, q: 0.85, pan: 0.45, vol: 0.22 * crowdScale },
+      { f0: 2700, f1: 3150, q: 0.8, pan: 0.0, vol: 0.14 * crowdScale },
     ];
 
     roarBands.forEach((rb) => {
@@ -723,11 +800,14 @@ class SoundEngine {
       warmth.stop(t + n.dur + 0.06);
     });
 
-    // 2. Natural Airy Arena Crowd Disappointment Sigh ("AWWWWW...") — pure smooth low-Q filtered noise
+    // 2. Scene-aware Crowd Disappointment Sigh (scales by location audience size; skipped in no-audience rooms!)
+    const crowdScale = getSceneById(this.activeSceneId).crowd.audioReactionScale;
+    if (crowdScale <= 0.01) return;
+
     const sighLayers = [
-      { startF: 880, endF: 440, q: 1.0, pan: -0.5, vol: 0.25 },
-      { startF: 1450, endF: 680, q: 0.95, pan: 0.5, vol: 0.2 },
-      { startF: 520, endF: 280, q: 0.85, pan: 0.0, vol: 0.18 },
+      { startF: 880, endF: 440, q: 1.0, pan: -0.5, vol: 0.25 * crowdScale },
+      { startF: 1450, endF: 680, q: 0.95, pan: 0.5, vol: 0.2 * crowdScale },
+      { startF: 520, endF: 280, q: 0.85, pan: 0.0, vol: 0.18 * crowdScale },
     ];
 
     sighLayers.forEach((l) => {

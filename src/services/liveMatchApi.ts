@@ -1,4 +1,4 @@
-import { LeaderboardEntry, LiveRoom, LiveRoomMode } from '../types/game';
+import { LeaderboardEntry, LiveRoom, LiveRoomMode, SceneId } from '../types/game';
 
 /**
  * Extracts a clean 6-char room code whether the user typed a code
@@ -44,6 +44,7 @@ export const liveMatchApi = {
     playerName: string;
     roomName: string;
     mode: LiveRoomMode;
+    sceneId: SceneId;
     visibility: 'public' | 'private';
     maxPlayers: 2 | 3 | 4;
   }): Promise<LiveRoom> {

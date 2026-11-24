@@ -3,16 +3,45 @@ import * as THREE from 'three';
 import { ContactShadows, Environment, Lightformer, Sparkles } from '@react-three/drei';
 import { createPedestalTexture } from '../engine/woodTextures';
 import { PALETTE, PEDESTAL_HEIGHT, PEDESTAL_RADIUS, PEDESTAL_TOP_Y } from '../engine/constants';
+import { getSceneById } from '../engine/scenes';
 import { useGameStore } from '../store/useGameStore';
 import { PlayersAndAudience } from './PlayersAndAudience';
+import { SceneWorld } from './SceneEnvironments';
 import { MoveVisualizer } from './MoveVisualizer';
 
+function createGradientSkyTexture(topHex: string, bottomHex: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, topHex);
+  grad.addColorStop(0.55, bottomHex);
+  grad.addColorStop(1, bottomHex);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 16, 256);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export const StudioEnvironment: React.FC = () => {
+  const screen = useGameStore((s) => s.screen);
+  const selectedSceneId = useGameStore((s) => s.selectedSceneId);
   const graphicsQuality = useGameStore((s) => s.settings.graphicsQuality);
   const reducedMotion = useGameStore((s) => s.settings.reducedMotion);
   const turnPhase = useGameStore((s) => s.turnPhase);
 
+  // Preserve the iconic Boxing Ring as the Home Menu hero; show selected scene everywhere else!
+  const activeSceneId = screen === 'menu' ? 'boxing-ring' : selectedSceneId;
+  const scene = useMemo(() => getSceneById(activeSceneId), [activeSceneId]);
+  const { lighting, platform } = scene;
+
   const pedestalTex = useMemo(() => createPedestalTexture(), []);
+  const skyTex = useMemo(
+    () => createGradientSkyTexture(lighting.domeTop, lighting.domeBottom),
+    [lighting.domeTop, lighting.domeBottom]
+  );
 
   useEffect(() => {
     return () => {
@@ -20,47 +49,49 @@ export const StudioEnvironment: React.FC = () => {
     };
   }, [pedestalTex]);
 
-  const shadowMapSize = graphicsQuality === 'high' ? 2048 : graphicsQuality === 'medium' ? 1024 : 512;
-  const particleCount = graphicsQuality === 'high' ? 52 : graphicsQuality === 'medium' ? 26 : 0;
+  useEffect(() => {
+    return () => {
+      skyTex.dispose();
+    };
+  }, [skyTex]);
 
-  // Pedestal ring accent responds gently to game state
+  const shadowMapSize = graphicsQuality === 'high' ? 2048 : graphicsQuality === 'medium' ? 1024 : 512;
+  const particleCount = graphicsQuality === 'high' ? 46 : graphicsQuality === 'medium' ? 22 : 0;
+
+  // Pedestal ring accent responds gently to game state while reflecting scene identity
   const ringColor =
     turnPhase === 'collapsing' || turnPhase === 'gameover'
       ? PALETTE.warmTangerine
       : turnPhase === 'placing'
         ? PALETTE.electricAqua
-        : '#54B8AC';
+        : platform.ringAccent;
 
   return (
     <group>
-      {/* Atmospheric midnight studio background + lighter arena fog so the boxing-ring crowd reads crisply */}
-      <color attach="background" args={[PALETTE.deepMidnight]} />
-      <fogExp2 attach="fog" args={[PALETTE.deepMidnight, 0.01]} />
+      {/* Dynamic Scene Sky Background + Atmospheric Fog */}
+      <color attach="background" args={[lighting.background]} />
+      <fogExp2 attach="fog" args={[lighting.fogColor, lighting.fogDensity]} />
 
-      {/* Studio backdrop dome for smooth vertical indigo-to-midnight tone shift */}
-      <mesh scale={65} position={[0, 8, 0]}>
+      {/* Vertical Gradient Sky Dome for authentic daylight, golden-hour, dusk & midnight skies */}
+      <mesh scale={72} position={[0, 8, 0]}>
         <sphereGeometry args={[1, 32, 24]} />
-        <meshBasicMaterial
-          color="#131B2E"
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
+        <meshBasicMaterial map={skyTex} side={THREE.BackSide} depthWrite={false} fog={false} />
       </mesh>
 
-      {/* Procedural studio HDR reflections (zero external fetches) */}
+      {/* Procedural HDR Reflections tuned to scene lighting */}
       <Environment resolution={256} frames={1}>
         <Lightformer
           form="rect"
           intensity={1.9}
-          color="#FFF2DC"
+          color={lighting.keyColor}
           position={[8, 12, 8]}
           rotation={[-Math.PI / 4, Math.PI / 4, 0]}
           scale={[10, 14, 1]}
         />
         <Lightformer
           form="rect"
-          intensity={1.3}
-          color="#64E5D2"
+          intensity={1.25}
+          color={lighting.rimColor}
           position={[-10, 7, -6]}
           rotation={[0, Math.PI / 3, 0]}
           scale={[8, 12, 1]}
@@ -68,62 +99,71 @@ export const StudioEnvironment: React.FC = () => {
         <Lightformer
           form="ring"
           intensity={0.9}
-          color="#8581FF"
+          color={lighting.fill1Color}
           position={[0, 16, -4]}
           rotation={[Math.PI / 2, 0, 0]}
           scale={12}
         />
         <Lightformer
           form="rect"
-          intensity={0.6}
-          color="#FF9B65"
+          intensity={0.65}
+          color={lighting.fill2Color}
           position={[-4, 2, 10]}
           scale={[10, 4, 1]}
         />
       </Environment>
 
-      {/* Primary lighting rig: warm key, cool aqua rim, indigo ambient bounce */}
-      <hemisphereLight args={['#8AA4D6', '#161D31', 0.45]} />
+      {/* Data-Driven Scene Lighting Rig */}
+      <hemisphereLight args={[lighting.hemiSky, lighting.hemiGround, lighting.hemiIntensity]} />
 
       <directionalLight
-        position={[9.5, 17.5, 9.0]}
-        intensity={2.35}
-        color="#FFF2DF"
+        position={lighting.keyPosition}
+        intensity={lighting.keyIntensity}
+        color={lighting.keyColor}
         castShadow={graphicsQuality !== 'low'}
         shadow-mapSize-width={shadowMapSize}
         shadow-mapSize-height={shadowMapSize}
         shadow-camera-near={2}
-        shadow-camera-far={42}
-        shadow-camera-left={-9}
-        shadow-camera-right={9}
+        shadow-camera-far={44}
+        shadow-camera-left={-10}
+        shadow-camera-right={10}
         shadow-camera-top={16}
         shadow-camera-bottom={-4}
         shadow-bias={-0.00035}
         shadow-normalBias={0.025}
       />
 
-      {/* Cool architectural rim light separating block silhouettes */}
-      <directionalLight position={[-10, 10, -8]} intensity={1.05} color="#7CE7D7" />
+      <directionalLight position={[-10, 10, -8]} intensity={lighting.rimIntensity} color={lighting.rimColor} />
 
-      {/* Subtle periwinkle side bounce */}
-      <pointLight position={[-7, 6, 6]} intensity={14} distance={24} decay={2} color="#8581FF" />
+      <pointLight
+        position={[-7, 6, 6]}
+        intensity={lighting.fill1Intensity}
+        distance={26}
+        decay={2}
+        color={lighting.fill1Color}
+      />
 
-      {/* Warm floor accent grazing lower tower */}
-      <pointLight position={[5.5, 2.2, -5.5]} intensity={10} distance={18} decay={2} color="#FF9B65" />
+      <pointLight
+        position={[5.5, 2.2, -5.5]}
+        intensity={lighting.fill2Intensity}
+        distance={20}
+        decay={2}
+        color={lighting.fill2Color}
+      />
 
-      {/* Sculptural Architectural Pedestal (top at y = 0) */}
+      {/* Consistent Physical Gameplay Footprint (top at exact PEDESTAL_TOP_Y = 0) themed per scene */}
       <group position={[0, PEDESTAL_TOP_Y, 0]}>
-        {/* Main slate platter */}
         <mesh position={[0, -PEDESTAL_HEIGHT * 0.5, 0]} receiveShadow castShadow>
           <cylinderGeometry args={[PEDESTAL_RADIUS, PEDESTAL_RADIUS * 1.04, PEDESTAL_HEIGHT, 72]} />
           <meshStandardMaterial
-            map={pedestalTex}
+            map={platform.useWoodGrainTex ? pedestalTex : undefined}
+            color={platform.useWoodGrainTex ? '#FFFFFF' : platform.topColor}
             roughness={0.78}
-            metalness={0.18}
+            metalness={platform.useWoodGrainTex ? 0.18 : 0.08}
           />
         </mesh>
 
-        {/* Outer metallic bevel collar */}
+        {/* Outer collar accent */}
         <mesh position={[0, -0.04, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[PEDESTAL_RADIUS - 0.06, PEDESTAL_RADIUS + 0.03, 72]} />
           <meshStandardMaterial
@@ -131,61 +171,64 @@ export const StudioEnvironment: React.FC = () => {
             emissive={ringColor}
             emissiveIntensity={turnPhase === 'placing' ? 1.15 : 0.45}
             roughness={0.35}
-            metalness={0.5}
+            metalness={0.45}
           />
         </mesh>
 
-        {/* Sub-plinth recessed base */}
+        {/* Sub-plinth base */}
         <mesh position={[0, -PEDESTAL_HEIGHT - 1.15, 0]} receiveShadow>
           <cylinderGeometry args={[PEDESTAL_RADIUS * 0.72, PEDESTAL_RADIUS * 0.82, 2.3, 48]} />
-          <meshStandardMaterial color="#121828" roughness={0.85} metalness={0.22} />
+          <meshStandardMaterial color={platform.baseColor} roughness={0.85} metalness={0.18} />
         </mesh>
 
-        {/* Subtle recessed underglow halo beneath platter lip */}
+        {/* Subtle recessed underglow halo */}
         <mesh position={[0, -PEDESTAL_HEIGHT - 0.02, 0]} rotation={[Math.PI / 2, 0, 0]}>
           <ringGeometry args={[PEDESTAL_RADIUS * 0.74, PEDESTAL_RADIUS * 0.99, 64]} />
           <meshBasicMaterial color={ringColor} transparent opacity={0.18} />
         </mesh>
 
-        {/* Wide infinite studio floor plane below pedestal */}
+        {/* Wide Scene Ground Plane */}
         <mesh position={[0, -PEDESTAL_HEIGHT - 2.3, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-          <circleGeometry args={[55, 48]} />
-          <meshStandardMaterial color="#0D1220" roughness={0.95} metalness={0.05} />
+          <circleGeometry args={[62, 56]} />
+          <meshStandardMaterial color={platform.floorColor} roughness={0.94} metalness={0.04} />
         </mesh>
       </group>
 
-      {/* Realistic 3D players inside the boxing ring + packed stadium cheering audience */}
+      {/* Scene-Specific 3D Environment Architecture & Props */}
+      <SceneWorld key={activeSceneId} sceneId={activeSceneId} reducedMotion={reducedMotion} />
+
+      {/* Realistic 3D Players + Scene-Aware Audience System */}
       <Suspense fallback={null}>
-        <PlayersAndAudience />
+        <PlayersAndAudience activeSceneId={activeSceneId} />
       </Suspense>
 
-      {/* Live 3D Move Indicators: extraction origin beacon, curved carry arc, and drop target guides */}
+      {/* Live 3D Move Indicators */}
       <MoveVisualizer />
 
       {/* Soft grounding contact shadows directly on the pedestal surface */}
       {graphicsQuality !== 'low' && (
         <ContactShadows
           position={[0, 0.004, 0]}
-          opacity={0.55}
+          opacity={lighting.contactShadowOpacity}
           scale={11.5}
           blur={1.9}
           far={12}
           resolution={graphicsQuality === 'high' ? 512 : 256}
-          color="#060911"
+          color={lighting.contactShadowColor}
           frames={Infinity}
         />
       )}
 
-      {/* Restrained atmospheric floating studio dust motes */}
-      {particleCount > 0 && (
+      {/* Restrained Atmospheric Particles (dust motes, golden-hour shimmer, park breeze) */}
+      {particleCount > 0 && lighting.sparkleOpacity > 0 && (
         <Sparkles
           count={particleCount}
           scale={[16, 15, 16]}
           position={[0, 7.5, 0]}
           size={1.6}
           speed={reducedMotion ? 0 : 0.22}
-          opacity={0.28}
-          color="#9ADAD0"
+          opacity={lighting.sparkleOpacity}
+          color={lighting.sparkleColor}
         />
       )}
     </group>
