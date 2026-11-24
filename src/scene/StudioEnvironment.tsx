@@ -2,28 +2,13 @@ import React, { Suspense, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { ContactShadows, Environment, Lightformer, Sparkles } from '@react-three/drei';
 import { createPedestalTexture } from '../engine/woodTextures';
+import { createCloudSkyTexture, getEnvironmentPbrLibrary } from '../engine/environmentMaterials';
 import { PALETTE, PEDESTAL_HEIGHT, PEDESTAL_RADIUS, PEDESTAL_TOP_Y } from '../engine/constants';
 import { getSceneById } from '../engine/scenes';
 import { useGameStore } from '../store/useGameStore';
 import { PlayersAndAudience } from './PlayersAndAudience';
 import { SceneWorld } from './SceneEnvironments';
 import { MoveVisualizer } from './MoveVisualizer';
-
-function createGradientSkyTexture(topHex: string, bottomHex: string): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 16;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d')!;
-  const grad = ctx.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, topHex);
-  grad.addColorStop(0.55, bottomHex);
-  grad.addColorStop(1, bottomHex);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 16, 256);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
 
 export const StudioEnvironment: React.FC = () => {
   const screen = useGameStore((s) => s.screen);
@@ -32,16 +17,49 @@ export const StudioEnvironment: React.FC = () => {
   const reducedMotion = useGameStore((s) => s.settings.reducedMotion);
   const turnPhase = useGameStore((s) => s.turnPhase);
 
-  // Preserve the iconic Boxing Ring as the Home Menu hero; show selected scene everywhere else!
+  // Preserve the iconic Boxing Ring as the Home Menu hero; render chosen location everywhere else
   const activeSceneId = screen === 'menu' ? 'boxing-ring' : selectedSceneId;
   const scene = useMemo(() => getSceneById(activeSceneId), [activeSceneId]);
   const { lighting, platform } = scene;
 
+  const pbr = useMemo(() => getEnvironmentPbrLibrary(), []);
   const pedestalTex = useMemo(() => createPedestalTexture(), []);
+
+  const isOutdoorSky =
+    activeSceneId === 'lagos-market' ||
+    activeSceneId === 'lagos-island' ||
+    activeSceneId === 'paris-eiffel' ||
+    activeSceneId === 'public-park';
+
   const skyTex = useMemo(
-    () => createGradientSkyTexture(lighting.domeTop, lighting.domeBottom),
-    [lighting.domeTop, lighting.domeBottom]
+    () => createCloudSkyTexture(lighting.domeTop, lighting.domeBottom, isOutdoorSky),
+    [lighting.domeTop, lighting.domeBottom, isOutdoorSky]
   );
+
+  // Pick realistic PBR surface maps for the gameplay platform & wide scene ground
+  const platformSurface = useMemo(() => {
+    switch (platform.style) {
+      case 'paris-stone':
+        return { top: pbr.parisStone, floor: pbr.cobblestone, bump: 0.08, floorBump: 0.14 };
+      case 'gym-mat':
+        return { top: pbr.gymRubber, floor: pbr.gymRubber, bump: 0.05, floorBump: 0.06 };
+      case 'office-oak':
+        return { top: pbr.oakPlanks, floor: pbr.oakPlanks, bump: 0.04, floorBump: 0.05 };
+      case 'bar-walnut':
+        return { top: pbr.oakPlanks, floor: pbr.oakPlanks, bump: 0.05, floorBump: 0.06 };
+      case 'park-deck':
+        return { top: pbr.cedarSlats, floor: pbr.parkGrass, bump: 0.08, floorBump: 0.1 };
+      case 'market-timber':
+        return { top: pbr.cedarSlats, floor: pbr.cobblestone, bump: 0.07, floorBump: 0.1 };
+      case 'urban-concrete':
+        return { top: pbr.boardConcrete, floor: pbr.asphalt, bump: 0.07, floorBump: 0.1 };
+      case 'living-rug':
+        return { top: pbr.oakPlanks, floor: pbr.oakPlanks, bump: 0.04, floorBump: 0.05 };
+      case 'slate-ring':
+      default:
+        return { top: null, floor: null, bump: 0, floorBump: 0 };
+    }
+  }, [platform.style, pbr]);
 
   useEffect(() => {
     return () => {
@@ -56,9 +74,8 @@ export const StudioEnvironment: React.FC = () => {
   }, [skyTex]);
 
   const shadowMapSize = graphicsQuality === 'high' ? 2048 : graphicsQuality === 'medium' ? 1024 : 512;
-  const particleCount = graphicsQuality === 'high' ? 46 : graphicsQuality === 'medium' ? 22 : 0;
+  const particleCount = graphicsQuality === 'high' ? 42 : graphicsQuality === 'medium' ? 20 : 0;
 
-  // Pedestal ring accent responds gently to game state while reflecting scene identity
   const ringColor =
     turnPhase === 'collapsing' || turnPhase === 'gameover'
       ? PALETTE.warmTangerine
@@ -68,33 +85,33 @@ export const StudioEnvironment: React.FC = () => {
 
   return (
     <group>
-      {/* Dynamic Scene Sky Background + Atmospheric Fog */}
+      {/* Dynamic Scene Sky Background + Atmospheric Aerial Haze */}
       <color attach="background" args={[lighting.background]} />
       <fogExp2 attach="fog" args={[lighting.fogColor, lighting.fogDensity]} />
 
-      {/* Vertical Gradient Sky Dome for authentic daylight, golden-hour, dusk & midnight skies */}
-      <mesh scale={72} position={[0, 8, 0]}>
-        <sphereGeometry args={[1, 32, 24]} />
+      {/* Painterly Cloud-Streaked Sky Dome / Studio Backdrop */}
+      <mesh scale={78} position={[0, 8, 0]}>
+        <sphereGeometry args={[1, 36, 24]} />
         <meshBasicMaterial map={skyTex} side={THREE.BackSide} depthWrite={false} fog={false} />
       </mesh>
 
-      {/* Procedural HDR Reflections tuned to scene lighting */}
+      {/* Procedural Studio / Sky HDR Reflections tuned to scene mood */}
       <Environment resolution={256} frames={1}>
         <Lightformer
           form="rect"
-          intensity={1.9}
+          intensity={isOutdoorSky ? 2.1 : 1.8}
           color={lighting.keyColor}
           position={[8, 12, 8]}
           rotation={[-Math.PI / 4, Math.PI / 4, 0]}
-          scale={[10, 14, 1]}
+          scale={[12, 14, 1]}
         />
         <Lightformer
           form="rect"
-          intensity={1.25}
+          intensity={1.35}
           color={lighting.rimColor}
           position={[-10, 7, -6]}
           rotation={[0, Math.PI / 3, 0]}
-          scale={[8, 12, 1]}
+          scale={[10, 12, 1]}
         />
         <Lightformer
           form="ring"
@@ -113,7 +130,7 @@ export const StudioEnvironment: React.FC = () => {
         />
       </Environment>
 
-      {/* Data-Driven Scene Lighting Rig */}
+      {/* Calibrated Three-Point + Natural Sky Bounce Lighting Rig */}
       <hemisphereLight args={[lighting.hemiSky, lighting.hemiGround, lighting.hemiIntensity]} />
 
       <directionalLight
@@ -124,11 +141,11 @@ export const StudioEnvironment: React.FC = () => {
         shadow-mapSize-width={shadowMapSize}
         shadow-mapSize-height={shadowMapSize}
         shadow-camera-near={2}
-        shadow-camera-far={44}
-        shadow-camera-left={-10}
-        shadow-camera-right={10}
-        shadow-camera-top={16}
-        shadow-camera-bottom={-4}
+        shadow-camera-far={48}
+        shadow-camera-left={-12}
+        shadow-camera-right={12}
+        shadow-camera-top={18}
+        shadow-camera-bottom={-5}
         shadow-bias={-0.00035}
         shadow-normalBias={0.025}
       />
@@ -151,34 +168,43 @@ export const StudioEnvironment: React.FC = () => {
         color={lighting.fill2Color}
       />
 
-      {/* Consistent Physical Gameplay Footprint (top at exact PEDESTAL_TOP_Y = 0) themed per scene */}
+      {/* Consistent Physical Gameplay Footprint (top at exact PEDESTAL_TOP_Y = 0) with Scene PBR Maps */}
       <group position={[0, PEDESTAL_TOP_Y, 0]}>
         <mesh position={[0, -PEDESTAL_HEIGHT * 0.5, 0]} receiveShadow castShadow>
           <cylinderGeometry args={[PEDESTAL_RADIUS, PEDESTAL_RADIUS * 1.04, PEDESTAL_HEIGHT, 72]} />
           <meshStandardMaterial
-            map={platform.useWoodGrainTex ? pedestalTex : undefined}
+            map={platform.useWoodGrainTex ? pedestalTex : platformSurface.top?.map}
+            bumpMap={platform.useWoodGrainTex ? undefined : platformSurface.top?.bumpMap}
+            bumpScale={platformSurface.bump}
             color={platform.useWoodGrainTex ? '#FFFFFF' : platform.topColor}
-            roughness={0.78}
-            metalness={platform.useWoodGrainTex ? 0.18 : 0.08}
+            roughness={0.82}
+            metalness={platform.useWoodGrainTex ? 0.16 : 0.06}
           />
         </mesh>
 
-        {/* Outer collar accent */}
+        {/* Outer bevel accent rim */}
         <mesh position={[0, -0.04, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[PEDESTAL_RADIUS - 0.06, PEDESTAL_RADIUS + 0.03, 72]} />
           <meshStandardMaterial
             color={ringColor}
             emissive={ringColor}
-            emissiveIntensity={turnPhase === 'placing' ? 1.15 : 0.45}
-            roughness={0.35}
-            metalness={0.45}
+            emissiveIntensity={turnPhase === 'placing' ? 1.15 : 0.4}
+            roughness={0.38}
+            metalness={0.42}
           />
         </mesh>
 
         {/* Sub-plinth base */}
         <mesh position={[0, -PEDESTAL_HEIGHT - 1.15, 0]} receiveShadow>
           <cylinderGeometry args={[PEDESTAL_RADIUS * 0.72, PEDESTAL_RADIUS * 0.82, 2.3, 48]} />
-          <meshStandardMaterial color={platform.baseColor} roughness={0.85} metalness={0.18} />
+          <meshStandardMaterial
+            map={platformSurface.top ? pbr.boardConcrete.map : undefined}
+            bumpMap={platformSurface.top ? pbr.boardConcrete.bumpMap : undefined}
+            bumpScale={0.05}
+            color={platform.baseColor}
+            roughness={0.88}
+            metalness={0.14}
+          />
         </mesh>
 
         {/* Subtle recessed underglow halo */}
@@ -187,17 +213,24 @@ export const StudioEnvironment: React.FC = () => {
           <meshBasicMaterial color={ringColor} transparent opacity={0.18} />
         </mesh>
 
-        {/* Wide Scene Ground Plane */}
+        {/* Wide Textured PBR Scene Ground Plane */}
         <mesh position={[0, -PEDESTAL_HEIGHT - 2.3, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-          <circleGeometry args={[62, 56]} />
-          <meshStandardMaterial color={platform.floorColor} roughness={0.94} metalness={0.04} />
+          <circleGeometry args={[66, 64]} />
+          <meshStandardMaterial
+            map={platformSurface.floor?.map}
+            bumpMap={platformSurface.floor?.bumpMap}
+            bumpScale={platformSurface.floorBump}
+            color={platformSurface.floor ? '#DDD6CC' : platform.floorColor}
+            roughness={0.93}
+            metalness={0.03}
+          />
         </mesh>
       </group>
 
-      {/* Scene-Specific 3D Environment Architecture & Props */}
+      {/* Scene-Specific AAA PBR 3D Environment Architecture & Props */}
       <SceneWorld key={activeSceneId} sceneId={activeSceneId} reducedMotion={reducedMotion} />
 
-      {/* Realistic 3D Players + Scene-Aware Audience System */}
+      {/* Realistic Diverse 3D Human Players + Scene-Aware Audience System */}
       <Suspense fallback={null}>
         <PlayersAndAudience activeSceneId={activeSceneId} />
       </Suspense>
@@ -205,7 +238,7 @@ export const StudioEnvironment: React.FC = () => {
       {/* Live 3D Move Indicators */}
       <MoveVisualizer />
 
-      {/* Soft grounding contact shadows directly on the pedestal surface */}
+      {/* Grounding Contact Shadows directly beneath the Jenga Tower */}
       {graphicsQuality !== 'low' && (
         <ContactShadows
           position={[0, 0.004, 0]}
@@ -219,14 +252,14 @@ export const StudioEnvironment: React.FC = () => {
         />
       )}
 
-      {/* Restrained Atmospheric Particles (dust motes, golden-hour shimmer, park breeze) */}
+      {/* Subtle Atmospheric Floating Motes */}
       {particleCount > 0 && lighting.sparkleOpacity > 0 && (
         <Sparkles
           count={particleCount}
           scale={[16, 15, 16]}
           position={[0, 7.5, 0]}
-          size={1.6}
-          speed={reducedMotion ? 0 : 0.22}
+          size={1.45}
+          speed={reducedMotion ? 0 : 0.2}
           opacity={lighting.sparkleOpacity}
           color={lighting.sparkleColor}
         />

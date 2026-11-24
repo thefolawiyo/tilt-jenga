@@ -4,6 +4,10 @@ export interface CrowdTextileSet {
   kente: THREE.CanvasTexture;
   ankaraTeal: THREE.CanvasTexture;
   ankaraCrimson: THREE.CanvasTexture;
+  ankaraPeacock: THREE.CanvasTexture;
+  ankaraOrangeScallop: THREE.CanvasTexture;
+  ankaraSunGold: THREE.CanvasTexture;
+  ankaraCobaltAdire: THREE.CanvasTexture;
   dashikiRoyal: THREE.CanvasTexture;
   arabianThobeWhite: THREE.CanvasTexture;
   arabianThobeSand: THREE.CanvasTexture;
@@ -11,6 +15,8 @@ export interface CrowdTextileSet {
   arabianAbayaGold: THREE.CanvasTexture;
   westernSuit: THREE.CanvasTexture;
   westernStreetwear: THREE.CanvasTexture;
+  gymAthletic: THREE.CanvasTexture;
+  fabricBump: THREE.CanvasTexture;
 }
 
 function makeCanvas(size = 256): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -273,6 +279,169 @@ function createWesternStreetwearTexture(): THREE.CanvasTexture {
   return finalizeTexture(c, 1, 1);
 }
 
+/** Reference-3 inspired Turquoise/Coral Peacock-Scale Nigerian Ankara Wax Print */
+function createAnkaraPeacockTexture(): THREE.CanvasTexture {
+  const S = 256;
+  const [c, ctx] = makeCanvas(S);
+  ctx.fillStyle = '#E8F3EF';
+  ctx.fillRect(0, 0, S, S);
+
+  const step = 32;
+  for (let row = 0; row < S / step + 1; row++) {
+    for (let col = 0; col < S / step + 1; col++) {
+      const cx = col * step + (row % 2) * (step / 2);
+      const cy = row * step;
+      ctx.fillStyle = '#1E8E87';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 13, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#DF6B43';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 2, 7.5, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#1A1C24';
+      ctx.beginPath();
+      ctx.arc(cx, cy + 3, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = '#F4EBD8';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    }
+  }
+  return finalizeTexture(c, 3, 3);
+}
+
+/** Reference-3 inspired Warm Burnt-Orange Scalloped Ankara Print */
+function createAnkaraOrangeScallopTexture(): THREE.CanvasTexture {
+  const S = 256;
+  const [c, ctx] = makeCanvas(S);
+  ctx.fillStyle = '#D96426';
+  ctx.fillRect(0, 0, S, S);
+
+  const step = 32;
+  for (let row = 0; row < S / step + 1; row++) {
+    for (let col = 0; col < S / step + 1; col++) {
+      const cx = col * step + (row % 2) * (step / 2);
+      const cy = row * step;
+      ctx.strokeStyle = '#F7C97E';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 14, Math.PI, 0);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#732912';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8, Math.PI, 0);
+      ctx.stroke();
+
+      ctx.fillStyle = '#F7C97E';
+      ctx.beginPath();
+      ctx.arc(cx, cy - 3, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  return finalizeTexture(c, 3, 3);
+}
+
+/** Reference-3 inspired Sunlit Golden-Yellow Medallion Ankara Print */
+function createAnkaraSunGoldTexture(): THREE.CanvasTexture {
+  const S = 256;
+  const [c, ctx] = makeCanvas(S);
+  ctx.fillStyle = '#F4C63D';
+  ctx.fillRect(0, 0, S, S);
+
+  const step = 42;
+  for (let y = 0; y < S + step; y += step) {
+    for (let x = 0; x < S + step; x += step) {
+      const cx = x + step / 2;
+      const cy = y + step / 2;
+      ctx.strokeStyle = '#8C4E12';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#FFF5D1';
+      for (let p = 0; p < 8; p++) {
+        const a = (p / 8) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(cx + Math.cos(a) * 10, cy + Math.sin(a) * 10, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#C86D18';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  return finalizeTexture(c, 3, 3);
+}
+
+/** Reference-3 inspired Royal Cobalt & Crisp White Adire Checkerboard Print */
+function createAnkaraCobaltAdireTexture(): THREE.CanvasTexture {
+  const S = 256;
+  const [c, ctx] = makeCanvas(S);
+  ctx.fillStyle = '#1D4ED8';
+  ctx.fillRect(0, 0, S, S);
+
+  const step = 24;
+  for (let y = 0; y < S; y += step) {
+    for (let x = 0; x < S; x += step) {
+      ctx.fillStyle = '#F4F7FF';
+      ctx.fillRect(x + 4, y + 4, step - 10, step - 10);
+      ctx.fillStyle = '#1E3A8A';
+      ctx.fillRect(x + 8, y + 8, step - 18, step - 18);
+    }
+  }
+  return finalizeTexture(c, 3, 3);
+}
+
+/** Matte Breathable Performance Athletic Mesh Texture (Indoor Gym) */
+function createGymAthleticTexture(): THREE.CanvasTexture {
+  const S = 256;
+  const [c, ctx] = makeCanvas(S);
+  ctx.fillStyle = '#D4DCE6';
+  ctx.fillRect(0, 0, S, S);
+
+  // Micro athletic mesh perforations
+  ctx.fillStyle = 'rgba(20, 26, 36, 0.14)';
+  for (let y = 0; y < S; y += 8) {
+    for (let x = (y % 16 === 0 ? 0 : 4); x < S; x += 8) {
+      ctx.fillRect(x, y, 2, 2);
+    }
+  }
+  // Subtle shoulder seam stripe
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.fillRect(0, 18, S, 8);
+  return finalizeTexture(c, 3, 3);
+}
+
+/** Fine Woven Cotton Cloth Bump Map so all garments read tactile & matte (zero plastic!) */
+function createFabricBumpTexture(): THREE.CanvasTexture {
+  const S = 256;
+  const [c, ctx] = makeCanvas(S);
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, S, S);
+  for (let y = 0; y < S; y += 4) {
+    ctx.fillStyle = y % 8 === 0 ? '#A8A8A8' : '#646464';
+    ctx.fillRect(0, y, S, 2);
+  }
+  for (let x = 0; x < S; x += 4) {
+    ctx.fillStyle = x % 8 === 0 ? 'rgba(215,215,215,0.45)' : 'rgba(60,60,60,0.45)';
+    ctx.fillRect(x, 0, 2, S);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(8, 8);
+  return tex;
+}
+
 let cachedTextiles: CrowdTextileSet | null = null;
 
 export function getCrowdTextiles(): CrowdTextileSet {
@@ -281,7 +450,11 @@ export function getCrowdTextiles(): CrowdTextileSet {
   cachedTextiles = {
     kente: createKenteTexture(),
     ankaraTeal: createAnkaraTexture('#0F4C5C', '#1CA39E', '#F2B705', '#F7EFE0'),
-    ankaraCrimson: createAnkaraTexture('#5E1224', '#D94B2B', '#F4C430', '#234C8A'),
+    ankaraCrimson: createAnkaraTexture('#9E1C28', '#E84A27', '#F7C948', '#FFF2DC'),
+    ankaraPeacock: createAnkaraPeacockTexture(),
+    ankaraOrangeScallop: createAnkaraOrangeScallopTexture(),
+    ankaraSunGold: createAnkaraSunGoldTexture(),
+    ankaraCobaltAdire: createAnkaraCobaltAdireTexture(),
     dashikiRoyal: createDashikiRoyalTexture(),
     arabianThobeWhite: createThobeTexture('#F5F2EB', '#E2D8C3'),
     arabianThobeSand: createThobeTexture('#E8DEC8', '#C9B58C'),
@@ -289,6 +462,8 @@ export function getCrowdTextiles(): CrowdTextileSet {
     arabianAbayaGold: createAbayaGoldTexture(),
     westernSuit: createWesternSuitTexture(),
     westernStreetwear: createWesternStreetwearTexture(),
+    gymAthletic: createGymAthleticTexture(),
+    fabricBump: createFabricBumpTexture(),
   };
 
   return cachedTextiles;

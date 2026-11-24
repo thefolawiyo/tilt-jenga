@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { useGameStore } from '../store/useGameStore';
 import { PALETTE, PEDESTAL_HEIGHT, PEDESTAL_TOP_Y } from '../engine/constants';
 import { CrowdTextileSet, getCrowdTextiles } from '../engine/crowdTextures';
@@ -16,6 +17,11 @@ type CrowdMood = 'idle' | 'tense' | 'cheer' | 'gasp' | 'victory';
 type ModelKind = 'rpm' | 'michelle';
 
 type CultureStyle =
+  | 'african_ankara_peacock'
+  | 'african_ankara_crimson'
+  | 'african_ankara_orange'
+  | 'african_ankara_sungold'
+  | 'african_ankara_adire'
   | 'african_kente'
   | 'african_ankara_gele'
   | 'african_dashiki'
@@ -23,12 +29,58 @@ type CultureStyle =
   | 'arabian_ghutra_bisht'
   | 'arabian_hijab'
   | 'western_blazer'
-  | 'western_streetwear';
+  | 'western_streetwear'
+  | 'gym_athletic';
 
 useGLTF.preload('/models/rpm_human.glb');
 useGLTF.preload('/models/michelle.glb');
 
-// Shared anatomical headwear geometries calibrated to rpm_human.glb Wolf3D_Head (center y=1.71, crown y=1.833)
+function safeMergeGeos(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const normalized = parts.map((g) => (g.index ? g.toNonIndexed() : g));
+  const merged = mergeGeometries(normalized, false);
+  parts.forEach((g) => g.dispose());
+  normalized.forEach((g) => g.dispose());
+  return merged ?? new THREE.SphereGeometry(0.11, 12, 10);
+}
+
+/**
+ * Trims long Victorian tailcoat tails (y < 0.89, |x| < 0.25) and protruding 3D bowtie
+ * (y > 1.455, z > 0.088, |x| < 0.068) off rpm_human.glb's Wolf3D_Outfit_Top so casual,
+ * Ankara, and gym athletic outfits read as clean modern waist-length tops.
+ */
+function trimFormalTailcoatGeometry(sourceGeo: THREE.BufferGeometry, stripBowtie: boolean): THREE.BufferGeometry {
+  const geo = sourceGeo.clone();
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const idx = geo.index;
+  if (!pos || !idx) return geo;
+
+  const oldArr = idx.array;
+  const kept: number[] = [];
+
+  const isTrimmedVertex = (vi: number): boolean => {
+    const x = pos.getX(vi);
+    const y = pos.getY(vi);
+    const z = pos.getZ(vi);
+    // Hanging tailcoat tails below hip line
+    if (y < 0.89 && Math.abs(x) < 0.25) return true;
+    // Protruding 3D bowtie knot on collar front
+    if (stripBowtie && y > 1.445 && z > 0.084 && Math.abs(x) < 0.072) return true;
+    return false;
+  };
+
+  for (let i = 0; i < oldArr.length; i += 3) {
+    const a = oldArr[i];
+    const b = oldArr[i + 1];
+    const c = oldArr[i + 2];
+    if (isTrimmedVertex(a) || isTrimmedVertex(b) || isTrimmedVertex(c)) continue;
+    kept.push(a, b, c);
+  }
+
+  geo.setIndex(kept);
+  return geo;
+}
+
+// Shared anatomical headwear & sculpted hairstyle geometries calibrated to rpm_human.glb Wolf3D_Head (center y=1.71, crown y=1.833)
 interface HeadwearGeometries {
   kufi: THREE.CylinderGeometry;
   geleCrown: THREE.TorusGeometry;
@@ -39,6 +91,10 @@ interface HeadwearGeometries {
   hijabWrap: THREE.SphereGeometry;
   hijabNeck: THREE.CylinderGeometry;
   hairCap: THREE.SphereGeometry;
+  naturalAfro: THREE.BufferGeometry;
+  cornrowCrown: THREE.BufferGeometry;
+  shortFade: THREE.BufferGeometry;
+  croppedWave: THREE.BufferGeometry;
 }
 
 let cachedHeadwearGeos: HeadwearGeometries | null = null;
@@ -82,9 +138,72 @@ function getHeadwearGeometries(): HeadwearGeometries {
   const hijabNeck = new THREE.CylinderGeometry(0.102, 0.148, 0.23, 16, 1, true, Math.PI * 0.42, Math.PI * 1.16);
   hijabNeck.translate(0, 1.565, -0.022);
 
-  // Natural Western short/textured hair cap (replaces the clone fedora!)
-  const hairCap = new THREE.SphereGeometry(0.109, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.56);
-  hairCap.translate(0, 1.735, 0.008);
+  // Natural Western textured hair framing the brow & temples cleanly
+  const hairCap = new THREE.SphereGeometry(0.111, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.58);
+  hairCap.rotateX(-0.08);
+  hairCap.translate(0, 1.724, 0.004);
+
+  // Sculpted natural curly Afro (snug organic curl halo hugging the temples & crown like Reference 3 #1 & #5)
+  const afroParts: THREE.BufferGeometry[] = [];
+  const afroCore = new THREE.SphereGeometry(0.124, 14, 12);
+  afroCore.scale(1.06, 0.96, 1.04);
+  afroCore.translate(0, 1.752, -0.02);
+  afroParts.push(afroCore);
+  const afroLobes: Array<[number, number, number, number]> = [
+    [0.0, 1.832, -0.015, 0.064],
+    [-0.082, 1.808, -0.01, 0.06],
+    [0.082, 1.808, -0.01, 0.06],
+    [-0.114, 1.752, -0.018, 0.058],
+    [0.114, 1.752, -0.018, 0.058],
+    [-0.06, 1.82, 0.036, 0.052],
+    [0.06, 1.82, 0.036, 0.052],
+    [0.0, 1.812, 0.05, 0.048],
+    [-0.102, 1.702, -0.038, 0.054],
+    [0.102, 1.702, -0.038, 0.054],
+    [0.0, 1.768, -0.098, 0.066],
+    [-0.072, 1.764, -0.088, 0.06],
+    [0.072, 1.764, -0.088, 0.06],
+  ];
+  for (const [lx, ly, lz, lr] of afroLobes) {
+    const lobe = new THREE.SphereGeometry(lr, 9, 8);
+    lobe.translate(lx, ly, lz);
+    afroParts.push(lobe);
+  }
+  const naturalAfro = safeMergeGeos(afroParts);
+
+  // Sculpted Cornrow Braids (close cranial base + 7 sleek braided ridges, Reference 3 #4)
+  const cornrowParts: THREE.BufferGeometry[] = [];
+  const cornBase = new THREE.SphereGeometry(0.107, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.52);
+  cornBase.rotateX(-0.12);
+  cornBase.translate(0, 1.734, -0.004);
+  cornrowParts.push(cornBase);
+  for (let r = -3; r <= 3; r++) {
+    const ridge = new THREE.TorusGeometry(0.104 - Math.abs(r) * 0.005, 0.011, 6, 16, Math.PI * 0.88);
+    ridge.rotateY(Math.PI / 2);
+    ridge.rotateZ(r * 0.24);
+    ridge.translate(r * 0.016, 1.74, -0.01);
+    cornrowParts.push(ridge);
+  }
+  const cornrowCrown = safeMergeGeos(cornrowParts);
+
+  // Snug barbershop low fade framing the forehead & hugging the crown naturally
+  const fadeCap = new THREE.SphereGeometry(0.108, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.56);
+  fadeCap.rotateX(-0.06);
+  fadeCap.translate(0, 1.726, 0.006);
+  const shortFade = safeMergeGeos([fadeCap]);
+
+  // Layered modern cropped wave/pixie cut (Reference 3 #3)
+  const waveParts: THREE.BufferGeometry[] = [];
+  const waveCap = new THREE.SphereGeometry(0.114, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.58);
+  waveCap.scale(1.04, 0.98, 1.06);
+  waveCap.rotateX(-0.1);
+  waveCap.translate(0, 1.745, -0.005);
+  waveParts.push(waveCap);
+  const waveFringe = new THREE.SphereGeometry(0.072, 10, 8);
+  waveFringe.scale(1.32, 0.65, 0.9);
+  waveFringe.translate(-0.025, 1.805, 0.055);
+  waveParts.push(waveFringe);
+  const croppedWave = safeMergeGeos(waveParts);
 
   cachedHeadwearGeos = {
     kufi,
@@ -96,13 +215,17 @@ function getHeadwearGeometries(): HeadwearGeometries {
     hijabWrap,
     hijabNeck,
     hairCap,
+    naturalAfro,
+    cornrowCrown,
+    shortFade,
+    croppedWave,
   };
   return cachedHeadwearGeos;
 }
 
 /**
- * Builds matching bone-attached headwear group (in Head-bone local coordinates!) for rigged VIPs & Players.
- * In rpm_human.glb, Head bone origin sits at the base of the skull (~y=1.60), so local offset is `y - 1.60`.
+ * Builds matching bone-attached headwear or realistic hairstyle group (in Head-bone local coordinates!) for rigged VIPs & Players.
+ * In rpm_human.glb, Head bone origin sits at the base of the skull (~y=1.615).
  */
 function createBoneHeadwearGroup(
   culture: CultureStyle,
@@ -112,18 +235,54 @@ function createBoneHeadwearGroup(
 ): THREE.Group {
   const group = new THREE.Group();
   const geos = getHeadwearGeometries();
-  // Head bone origin in rpm_human.glb sits around world y = 1.615
   group.position.set(0, -1.615, -0.01);
 
-  if (culture === 'african_kente' || culture === 'african_dashiki') {
+  if (culture === 'african_ankara_peacock' || culture === 'african_ankara_adire') {
+    const hairMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(hairHex),
+      roughness: 0.94,
+      metalness: 0.0,
+      bumpMap: textiles.fabricBump,
+      bumpScale: 0.024,
+    });
+    group.add(new THREE.Mesh(geos.naturalAfro, hairMat));
+  } else if (culture === 'african_ankara_crimson') {
+    const hairMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(hairHex),
+      roughness: 0.9,
+      metalness: 0.0,
+    });
+    group.add(new THREE.Mesh(geos.shortFade, hairMat));
+  } else if (culture === 'african_ankara_orange') {
+    const hairMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(hairHex),
+      roughness: 0.82,
+      metalness: 0.04,
+    });
+    group.add(new THREE.Mesh(geos.croppedWave, hairMat));
+  } else if (culture === 'african_ankara_sungold') {
+    const hairMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(hairHex),
+      roughness: 0.88,
+      metalness: 0.02,
+    });
+    group.add(new THREE.Mesh(geos.cornrowCrown, hairMat));
+  } else if (culture === 'african_kente' || culture === 'african_dashiki') {
     const tex = culture === 'african_kente' ? textiles.kente : textiles.dashikiRoyal;
-    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.72 });
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      bumpMap: textiles.fabricBump,
+      bumpScale: 0.015,
+      roughness: 0.86,
+    });
     group.add(new THREE.Mesh(geos.kufi, mat));
   } else if (culture === 'african_ankara_gele') {
     const mat = new THREE.MeshStandardMaterial({
-      map: textiles.ankaraTeal,
+      map: textiles.ankaraPeacock,
+      bumpMap: textiles.fabricBump,
+      bumpScale: 0.016,
       color: new THREE.Color(accentHex),
-      roughness: 0.65,
+      roughness: 0.78,
     });
     group.add(new THREE.Mesh(geos.geleCrown, mat));
     group.add(new THREE.Mesh(geos.geleFan, mat));
@@ -132,28 +291,38 @@ function createBoneHeadwearGroup(
       culture === 'arabian_shemagh'
         ? new THREE.MeshStandardMaterial({
             map: textiles.arabianShemaghRed,
-            roughness: 0.78,
+            bumpMap: textiles.fabricBump,
+            bumpScale: 0.012,
+            roughness: 0.85,
             side: THREE.DoubleSide,
           })
         : new THREE.MeshStandardMaterial({
             map: textiles.arabianThobeWhite,
-            roughness: 0.72,
+            bumpMap: textiles.fabricBump,
+            bumpScale: 0.012,
+            roughness: 0.82,
             side: THREE.DoubleSide,
           });
-    const agalMat = new THREE.MeshStandardMaterial({ color: '#11131A', roughness: 0.55 });
+    const agalMat = new THREE.MeshStandardMaterial({ color: '#11131A', roughness: 0.65 });
     group.add(new THREE.Mesh(geos.shemaghCap, clothMat));
     group.add(new THREE.Mesh(geos.shemaghDrape, clothMat));
     group.add(new THREE.Mesh(geos.agalRing, agalMat));
   } else if (culture === 'arabian_hijab') {
     const silkMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(accentHex),
-      roughness: 0.52,
+      roughness: 0.64,
       side: THREE.DoubleSide,
     });
     group.add(new THREE.Mesh(geos.hijabWrap, silkMat));
     group.add(new THREE.Mesh(geos.hijabNeck, silkMat));
+  } else if (culture === 'gym_athletic') {
+    const hairMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(hairHex),
+      roughness: 0.9,
+    });
+    group.add(new THREE.Mesh(geos.shortFade, hairMat));
   } else {
-    const hairMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(hairHex), roughness: 0.82 });
+    const hairMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(hairHex), roughness: 0.86 });
     group.add(new THREE.Mesh(geos.hairCap, hairMat));
   }
 
@@ -166,6 +335,7 @@ interface RiggedHumanProps {
   position: [number, number, number];
   rotationY: number;
   scaleMultiplier?: number;
+  bodyProportions?: [number, number, number];
   skinTint?: string;
   outfitTint?: string;
   hairColor?: string;
@@ -198,9 +368,10 @@ const RiggedRealisticHuman: React.FC<RiggedHumanProps> = React.memo(
     position,
     rotationY,
     scaleMultiplier = 1,
+    bodyProportions = [1, 1, 1],
     skinTint = '#FFFFFF',
     outfitTint = '#FFFFFF',
-    hairColor = '#231C18',
+    hairColor = '#1A1614',
     accentRingColor,
     isActivePlayer = false,
     phaseOffset,
@@ -247,9 +418,14 @@ const RiggedRealisticHuman: React.FC<RiggedHumanProps> = React.memo(
       mapBone('rightForeArm', 'RightForeArm');
 
       const hideBeard =
+        culture === 'african_ankara_peacock' ||
+        culture === 'african_ankara_orange' ||
+        culture === 'african_ankara_sungold' ||
+        culture === 'african_ankara_adire' ||
         culture === 'african_ankara_gele' ||
         culture === 'arabian_hijab' ||
-        culture === 'western_streetwear';
+        culture === 'western_streetwear' ||
+        culture === 'gym_athletic';
 
       copy.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
@@ -261,7 +437,7 @@ const RiggedRealisticHuman: React.FC<RiggedHumanProps> = React.memo(
           if (model === 'rpm' && mesh.material && !Array.isArray(mesh.material)) {
             const matName = mesh.material.name || '';
 
-            // Hide the default clone fedora on RPM humans — we attach authentic cultural headwear below!
+            // Hide the default clone fedora on RPM humans — we attach authentic cultural headwear or sculpted hairstyles below!
             if (matName.includes('Headwear')) {
               mesh.visible = false;
               return;
@@ -274,12 +450,40 @@ const RiggedRealisticHuman: React.FC<RiggedHumanProps> = React.memo(
             if (matName.includes('Skin') || matName.includes('Body')) {
               const m = mesh.material.clone() as THREE.MeshStandardMaterial;
               m.color = new THREE.Color(skinTint);
+              m.roughness = 0.56;
+              m.metalness = 0.02;
+              m.needsUpdate = true;
               mesh.material = m;
             } else if (matName.includes('Outfit_Top') || matName.includes('Outfit_Bottom')) {
               const isTop = matName.includes('Outfit_Top');
-              const m = mesh.material.clone() as THREE.MeshStandardMaterial;
+              // Trim Victorian tailcoat tails & bowtie off casual, Ankara, and gym athletic tops
+              if (isTop && culture !== 'western_blazer') {
+                mesh.geometry = trimFormalTailcoatGeometry(mesh.geometry, true);
+              }
+              // Use a brand-new clean PBR material (strips the GLTF tuxedo normalMap/bowtie shading completely!)
+              const m = new THREE.MeshStandardMaterial({
+                bumpMap: textiles.fabricBump,
+                bumpScale: 0.018,
+                roughness: 0.88,
+                metalness: 0.0,
+              });
 
-              if (culture === 'african_kente') {
+              if (culture === 'african_ankara_peacock') {
+                m.map = textiles.ankaraPeacock;
+                m.color = new THREE.Color('#FFFFFF');
+              } else if (culture === 'african_ankara_crimson') {
+                m.map = textiles.ankaraCrimson;
+                m.color = new THREE.Color('#FFFFFF');
+              } else if (culture === 'african_ankara_orange') {
+                m.map = textiles.ankaraOrangeScallop;
+                m.color = new THREE.Color('#FFFFFF');
+              } else if (culture === 'african_ankara_sungold') {
+                m.map = textiles.ankaraSunGold;
+                m.color = new THREE.Color('#FFFFFF');
+              } else if (culture === 'african_ankara_adire') {
+                m.map = textiles.ankaraCobaltAdire;
+                m.color = new THREE.Color('#FFFFFF');
+              } else if (culture === 'african_kente') {
                 m.map = textiles.kente;
                 m.color = new THREE.Color('#FFFFFF');
               } else if (culture === 'african_ankara_gele') {
@@ -297,6 +501,9 @@ const RiggedRealisticHuman: React.FC<RiggedHumanProps> = React.memo(
               } else if (culture === 'arabian_hijab') {
                 m.map = textiles.arabianAbayaGold;
                 m.color = new THREE.Color(outfitTint);
+              } else if (culture === 'gym_athletic') {
+                m.map = textiles.gymAthletic;
+                m.color = new THREE.Color(isTop ? outfitTint : '#22262E');
               } else if (culture === 'western_streetwear') {
                 m.map = isTop ? textiles.westernStreetwear : textiles.westernSuit;
                 m.color = new THREE.Color(isTop ? outfitTint : '#2E3548');
@@ -304,15 +511,21 @@ const RiggedRealisticHuman: React.FC<RiggedHumanProps> = React.memo(
                 m.map = textiles.westernSuit;
                 m.color = new THREE.Color(isTop ? outfitTint : '#283145');
               }
-              m.roughness = 0.72;
               m.needsUpdate = true;
+              mesh.material = m;
+            } else if (matName.includes('Footwear')) {
+              const m = new THREE.MeshStandardMaterial({
+                color: new THREE.Color(culture === 'gym_athletic' ? '#D6DAE0' : '#23262E'),
+                roughness: 0.72,
+                metalness: 0.04,
+              });
               mesh.material = m;
             }
           }
         }
       });
 
-      // Attach authentic cultural headwear right onto the Head bone for RPM characters!
+      // Attach authentic cultural headwear or sculpted natural hair right onto the Head bone for RPM characters!
       if (model === 'rpm' && rig.head) {
         const hw = createBoneHeadwearGroup(culture, textiles, hairColor, outfitTint);
         rig.head.add(hw);
@@ -323,6 +536,11 @@ const RiggedRealisticHuman: React.FC<RiggedHumanProps> = React.memo(
     }, [gltf.scene, model, culture, skinTint, outfitTint, hairColor, accentRingColor, textiles]);
 
     const baseScale = (model === 'michelle' ? 3.58 : 3.42) * scaleMultiplier;
+    const scaleVec: [number, number, number] = [
+      baseScale * bodyProportions[0],
+      baseScale * bodyProportions[1],
+      baseScale * bodyProportions[2],
+    ];
 
     useFrame((state, delta) => {
       const dt = Math.min(delta, 0.05);
@@ -375,21 +593,13 @@ const RiggedRealisticHuman: React.FC<RiggedHumanProps> = React.memo(
           foreBendL = isActivePlayer ? 0.78 : 0.45;
           foreBendR = isActivePlayer ? 0.85 : 0.45;
         } else {
-          const idleWave = !accentRingColor && Math.sin(t * 0.85 + ph * 1.7) > 0.62;
-          if (idleWave) {
-            bounceY = Math.max(0, Math.sin(t * 6.5 + ph)) * 0.14;
-            armRaiseL = (model === 'michelle' ? -0.7 : -1.55) + Math.sin(t * 9 + ph) * 0.18;
-            armRaiseR = (model === 'michelle' ? -0.7 : -1.55) - Math.sin(t * 9 + ph) * 0.18;
-            foreBendL = 0.55;
-            foreBendR = 0.55;
-          } else {
-            spinePitch = (isActivePlayer ? 0.08 : 0.02) + Math.sin(t * 1.6 + ph) * 0.022;
-            headYaw = Math.sin(t * 0.75 + ph) * 0.09;
-            armRaiseL = baseArmDown + Math.sin(t * 1.5 + ph) * 0.04;
-            armRaiseR = baseArmDown - Math.sin(t * 1.5 + ph) * 0.04;
-            foreBendL = isActivePlayer ? 0.48 : 0.24;
-            foreBendR = isActivePlayer ? 0.52 : 0.24;
-          }
+          // Natural relaxed standing idle with subtle breathing, head turns & gentle arm sway (zero random T-pose!)
+          spinePitch = (isActivePlayer ? 0.07 : 0.02) + Math.sin(t * 1.4 + ph) * 0.018;
+          headYaw = Math.sin(t * 0.65 + ph) * 0.11;
+          armRaiseL = baseArmDown + Math.sin(t * 1.2 + ph) * 0.035;
+          armRaiseR = baseArmDown - Math.sin(t * 1.2 + ph) * 0.035;
+          foreBendL = isActivePlayer ? 0.42 : 0.22;
+          foreBendR = isActivePlayer ? 0.46 : 0.22;
         }
       }
 
@@ -470,7 +680,7 @@ const RiggedRealisticHuman: React.FC<RiggedHumanProps> = React.memo(
             />
           </mesh>
         )}
-        <primitive object={clonedScene} scale={baseScale} />
+        <primitive object={clonedScene} scale={scaleVec} />
       </group>
     );
   }
@@ -482,7 +692,9 @@ interface CrowdMemberSpec {
   y: number;
   z: number;
   rotY: number;
-  scale: number;
+  scaleX: number;
+  scaleY: number;
+  scaleZ: number;
   phase: number;
   skinColor: THREE.Color;
   topColor: THREE.Color;
@@ -518,83 +730,151 @@ const CulturalCrowdBucket: React.FC<{
 }> = ({ culture, members, rpmGeos, textiles, moodRef, cheerBoostRef, reducedMotion }) => {
   const hwGeos = useMemo(() => getHeadwearGeometries(), []);
 
-  // Build authentic materials for this cultural bucket
+  // Build authentic PBR materials for this cultural bucket
   const mats = useMemo(() => {
     const skinMat = rpmGeos.skinMatBase.clone();
     skinMat.color = new THREE.Color('#FFFFFF');
+    skinMat.roughness = 0.56;
+    skinMat.metalness = 0.02;
 
     const bodyMat = rpmGeos.bodyMatBase.clone();
     bodyMat.color = new THREE.Color('#FFFFFF');
+    bodyMat.roughness = 0.58;
+    bodyMat.metalness = 0.02;
 
     const beardMat = rpmGeos.beardMatBase.clone();
+    beardMat.roughness = 0.92;
     const shoeMat = rpmGeos.footwearMatBase.clone();
-    shoeMat.color = new THREE.Color('#2B2F3C');
+    shoeMat.color = new THREE.Color(culture === 'gym_athletic' ? '#D4D9E0' : '#262A34');
+    shoeMat.roughness = 0.72;
 
     let topTex: THREE.Texture = textiles.westernSuit;
     let botTex: THREE.Texture = textiles.westernSuit;
     let hwMat1: THREE.MeshStandardMaterial;
     let hwMat2: THREE.MeshStandardMaterial | null = null;
 
-    if (culture === 'african_kente') {
+    if (culture === 'african_ankara_peacock') {
+      topTex = textiles.ankaraPeacock;
+      botTex = textiles.ankaraPeacock;
+      hwMat1 = new THREE.MeshStandardMaterial({
+        color: '#FFFFFF',
+        roughness: 0.94,
+        bumpMap: textiles.fabricBump,
+        bumpScale: 0.024,
+      });
+    } else if (culture === 'african_ankara_crimson') {
+      topTex = textiles.ankaraCrimson;
+      botTex = textiles.ankaraCrimson;
+      hwMat1 = new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.9 });
+    } else if (culture === 'african_ankara_orange') {
+      topTex = textiles.ankaraOrangeScallop;
+      botTex = textiles.ankaraOrangeScallop;
+      hwMat1 = new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.84 });
+    } else if (culture === 'african_ankara_sungold') {
+      topTex = textiles.ankaraSunGold;
+      botTex = textiles.ankaraSunGold;
+      hwMat1 = new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.88 });
+    } else if (culture === 'african_ankara_adire') {
+      topTex = textiles.ankaraCobaltAdire;
+      botTex = textiles.ankaraCobaltAdire;
+      hwMat1 = new THREE.MeshStandardMaterial({
+        color: '#FFFFFF',
+        roughness: 0.94,
+        bumpMap: textiles.fabricBump,
+        bumpScale: 0.024,
+      });
+    } else if (culture === 'african_kente') {
       topTex = textiles.kente;
       botTex = textiles.kente;
-      hwMat1 = new THREE.MeshStandardMaterial({ map: textiles.kente, roughness: 0.72 });
+      hwMat1 = new THREE.MeshStandardMaterial({
+        map: textiles.kente,
+        bumpMap: textiles.fabricBump,
+        bumpScale: 0.015,
+        roughness: 0.86,
+      });
     } else if (culture === 'african_ankara_gele') {
-      topTex = textiles.ankaraTeal;
+      topTex = textiles.ankaraPeacock;
       botTex = textiles.ankaraCrimson;
-      hwMat1 = new THREE.MeshStandardMaterial({ map: textiles.ankaraCrimson, roughness: 0.64 });
-      hwMat2 = new THREE.MeshStandardMaterial({ map: textiles.ankaraTeal, roughness: 0.64 });
+      hwMat1 = new THREE.MeshStandardMaterial({
+        map: textiles.ankaraCrimson,
+        bumpMap: textiles.fabricBump,
+        bumpScale: 0.016,
+        roughness: 0.8,
+      });
+      hwMat2 = new THREE.MeshStandardMaterial({
+        map: textiles.ankaraPeacock,
+        bumpMap: textiles.fabricBump,
+        bumpScale: 0.016,
+        roughness: 0.8,
+      });
     } else if (culture === 'african_dashiki') {
       topTex = textiles.dashikiRoyal;
       botTex = textiles.dashikiRoyal;
-      hwMat1 = new THREE.MeshStandardMaterial({ map: textiles.dashikiRoyal, roughness: 0.7 });
+      hwMat1 = new THREE.MeshStandardMaterial({
+        map: textiles.dashikiRoyal,
+        bumpMap: textiles.fabricBump,
+        bumpScale: 0.015,
+        roughness: 0.86,
+      });
     } else if (culture === 'arabian_shemagh') {
       topTex = textiles.arabianThobeWhite;
       botTex = textiles.arabianThobeWhite;
       hwMat1 = new THREE.MeshStandardMaterial({
         map: textiles.arabianShemaghRed,
-        roughness: 0.78,
+        bumpMap: textiles.fabricBump,
+        bumpScale: 0.012,
+        roughness: 0.85,
         side: THREE.DoubleSide,
       });
-      hwMat2 = new THREE.MeshStandardMaterial({ color: '#101218', roughness: 0.55 });
+      hwMat2 = new THREE.MeshStandardMaterial({ color: '#101218', roughness: 0.65 });
     } else if (culture === 'arabian_ghutra_bisht') {
       topTex = textiles.arabianAbayaGold;
       botTex = textiles.arabianThobeSand;
       hwMat1 = new THREE.MeshStandardMaterial({
         map: textiles.arabianThobeWhite,
-        roughness: 0.74,
+        bumpMap: textiles.fabricBump,
+        bumpScale: 0.012,
+        roughness: 0.82,
         side: THREE.DoubleSide,
       });
-      hwMat2 = new THREE.MeshStandardMaterial({ color: '#101218', roughness: 0.55 });
+      hwMat2 = new THREE.MeshStandardMaterial({ color: '#101218', roughness: 0.65 });
     } else if (culture === 'arabian_hijab') {
       topTex = textiles.arabianAbayaGold;
       botTex = textiles.arabianAbayaGold;
       hwMat1 = new THREE.MeshStandardMaterial({
         color: '#FFFFFF',
-        roughness: 0.52,
+        roughness: 0.64,
         side: THREE.DoubleSide,
       });
+    } else if (culture === 'gym_athletic') {
+      topTex = textiles.gymAthletic;
+      botTex = textiles.gymAthletic;
+      hwMat1 = new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.88 });
     } else if (culture === 'western_streetwear') {
       topTex = textiles.westernStreetwear;
       botTex = textiles.westernSuit;
-      hwMat1 = new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.85 });
+      hwMat1 = new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.88 });
     } else {
       topTex = textiles.westernSuit;
       botTex = textiles.westernSuit;
-      hwMat1 = new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.85 });
+      hwMat1 = new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.88 });
     }
 
     const topMat = new THREE.MeshStandardMaterial({
       map: topTex,
+      bumpMap: textiles.fabricBump,
+      bumpScale: 0.018,
       color: '#FFFFFF',
-      roughness: 0.74,
-      metalness: 0.04,
+      roughness: 0.88,
+      metalness: 0.0,
     });
     const botMat = new THREE.MeshStandardMaterial({
       map: botTex,
+      bumpMap: textiles.fabricBump,
+      bumpScale: 0.018,
       color: '#FFFFFF',
-      roughness: 0.78,
-      metalness: 0.03,
+      roughness: 0.9,
+      metalness: 0.0,
     });
 
     return { skinMat, bodyMat, beardMat, shoeMat, topMat, botMat, hwMat1, hwMat2 };
@@ -616,6 +896,7 @@ const CulturalCrowdBucket: React.FC<{
   // Assemble the exact list of instanced sub-layers for this cultural group
   const layers = useMemo(() => {
     const showBeard =
+      culture === 'african_ankara_crimson' ||
       culture === 'arabian_shemagh' ||
       culture === 'arabian_ghutra_bisht' ||
       culture === 'african_dashiki';
@@ -637,7 +918,15 @@ const CulturalCrowdBucket: React.FC<{
       list.push({ key: 'beard', geo: rpmGeos.beard, mat: mats.beardMat, colorSlot: 'fixed' });
     }
 
-    if (culture === 'african_kente' || culture === 'african_dashiki') {
+    if (culture === 'african_ankara_peacock' || culture === 'african_ankara_adire') {
+      list.push({ key: 'afro', geo: hwGeos.naturalAfro, mat: mats.hwMat1, colorSlot: 'headwear' });
+    } else if (culture === 'african_ankara_crimson' || culture === 'gym_athletic') {
+      list.push({ key: 'fade', geo: hwGeos.shortFade, mat: mats.hwMat1, colorSlot: 'headwear' });
+    } else if (culture === 'african_ankara_orange') {
+      list.push({ key: 'wave', geo: hwGeos.croppedWave, mat: mats.hwMat1, colorSlot: 'headwear' });
+    } else if (culture === 'african_ankara_sungold') {
+      list.push({ key: 'cornrows', geo: hwGeos.cornrowCrown, mat: mats.hwMat1, colorSlot: 'headwear' });
+    } else if (culture === 'african_kente' || culture === 'african_dashiki') {
       list.push({ key: 'kufi', geo: hwGeos.kufi, mat: mats.hwMat1, colorSlot: 'headwear' });
     } else if (culture === 'african_ankara_gele') {
       list.push({ key: 'gele1', geo: hwGeos.geleCrown, mat: mats.hwMat1, colorSlot: 'headwear' });
@@ -729,7 +1018,7 @@ const CulturalCrowdBucket: React.FC<{
 
       dummy.position.set(s.x, s.y + dy, s.z);
       dummy.rotation.set(leanX, s.rotY, swayZ);
-      dummy.scale.setScalar(s.scale);
+      dummy.scale.set(s.scaleX, s.scaleY, s.scaleZ);
       dummy.updateMatrix();
 
       for (let l = 0; l < layers.length; l++) {
@@ -775,18 +1064,52 @@ const PackedBoxingCrowd: React.FC<{
   const rpmGltf = useGLTF('/models/rpm_human.glb');
   const textiles = useMemo(() => getCrowdTextiles(), []);
 
-  // Extract static anatomical meshes from rpm_human.glb once (morph targets & skinning stripped cleanly!)
+  // Extract static anatomical meshes from rpm_human.glb in a natural relaxed standing pose (arms lowered, zero A-pose!)
   const rpmGeos = useMemo<ExtractedRpmGeos | null>(() => {
     const map: Record<string, { geo: THREE.BufferGeometry; mat: THREE.MeshStandardMaterial }> = {};
+    const posedCopy = cloneSkeleton(rpmGltf.scene) as THREE.Group;
 
-    rpmGltf.scene.traverse((child) => {
+    // Pose the upper arms & elbows into a natural relaxed standing stance before baking vertices
+    posedCopy.traverse((obj) => {
+      if (!(obj as THREE.Bone).isBone) return;
+      const bone = obj as THREE.Bone;
+      const clean = bone.name.replace(/^mixamorig:?_?/i, '').toLowerCase();
+      if (clean === 'leftarm') {
+        bone.rotation.x += 0.38;
+      } else if (clean === 'rightarm') {
+        bone.rotation.x += 0.38;
+      } else if (clean === 'leftforearm') {
+        bone.rotation.z += 0.18;
+      } else if (clean === 'rightforearm') {
+        bone.rotation.z -= 0.18;
+      }
+    });
+    posedCopy.updateMatrixWorld(true);
+
+    const tmpPos = new THREE.Vector3();
+    posedCopy.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
         const mat = mesh.material as THREE.MeshStandardMaterial;
         if (!mat || Array.isArray(mat)) return;
         const name = mat.name || mesh.name;
 
-        const cleanGeo = mesh.geometry.clone();
+        const cleanGeo =
+          name === 'Wolf3D_Outfit_Top'
+            ? trimFormalTailcoatGeometry(mesh.geometry, true)
+            : mesh.geometry.clone();
+        if ((mesh as THREE.SkinnedMesh).isSkinnedMesh) {
+          const skinned = mesh as THREE.SkinnedMesh;
+          skinned.skeleton.update();
+          const posAttr = cleanGeo.attributes.position as THREE.BufferAttribute;
+          for (let i = 0; i < posAttr.count; i++) {
+            tmpPos.fromBufferAttribute(posAttr, i);
+            skinned.applyBoneTransform(i, tmpPos);
+            posAttr.setXYZ(i, tmpPos.x, tmpPos.y, tmpPos.z);
+          }
+          posAttr.needsUpdate = true;
+          cleanGeo.computeVertexNormals();
+        }
         cleanGeo.morphAttributes = {};
         cleanGeo.deleteAttribute('skinIndex');
         cleanGeo.deleteAttribute('skinWeight');
@@ -834,6 +1157,11 @@ const PackedBoxingCrowd: React.FC<{
   // Partition spectators across cultural styles & scene-specific layout
   const buckets = useMemo(() => {
     const grouped: Record<CultureStyle, CrowdMemberSpec[]> = {
+      african_ankara_peacock: [],
+      african_ankara_crimson: [],
+      african_ankara_orange: [],
+      african_ankara_sungold: [],
+      african_ankara_adire: [],
       african_kente: [],
       african_ankara_gele: [],
       african_dashiki: [],
@@ -842,6 +1170,7 @@ const PackedBoxingCrowd: React.FC<{
       arabian_hijab: [],
       western_blazer: [],
       western_streetwear: [],
+      gym_athletic: [],
     };
 
     const targetCount =
@@ -860,64 +1189,83 @@ const PackedBoxingCrowd: React.FC<{
     const weightedCultures: CultureStyle[] =
       crowdConfig.culturalMix === 'lagos'
         ? [
-            'african_kente',
-            'african_kente',
-            'african_kente',
+            'african_ankara_peacock',
+            'african_ankara_peacock',
+            'african_ankara_crimson',
+            'african_ankara_crimson',
+            'african_ankara_orange',
+            'african_ankara_sungold',
+            'african_ankara_sungold',
+            'african_ankara_adire',
+            'african_ankara_adire',
             'african_ankara_gele',
-            'african_ankara_gele',
-            'african_ankara_gele',
-            'african_dashiki',
+            'african_kente',
             'african_dashiki',
             'western_streetwear',
-            'western_blazer',
           ]
-        : crowdConfig.culturalMix === 'paris'
-          ? [
-              'western_blazer',
-              'western_blazer',
-              'western_blazer',
-              'western_streetwear',
-              'western_streetwear',
-              'african_ankara_gele',
-              'arabian_hijab',
-              'african_kente',
-            ]
-          : crowdConfig.culturalMix === 'casual-indoor'
+        : crowdConfig.culturalMix === 'gym'
+          ? ['gym_athletic']
+          : crowdConfig.culturalMix === 'paris'
             ? [
-                'western_streetwear',
-                'western_streetwear',
                 'western_blazer',
                 'western_blazer',
-                'african_dashiki',
+                'western_blazer',
+                'western_streetwear',
+                'western_streetwear',
+                'african_ankara_peacock',
+                'african_ankara_adire',
                 'arabian_hijab',
+                'african_ankara_orange',
               ]
-            : [
-                'african_kente',
-                'african_kente',
-                'african_ankara_gele',
-                'african_ankara_gele',
-                'african_dashiki',
-                'arabian_shemagh',
-                'arabian_shemagh',
-                'arabian_ghutra_bisht',
-                'arabian_hijab',
-                'arabian_hijab',
-                'western_blazer',
-                'western_blazer',
-                'western_streetwear',
-                'western_streetwear',
-              ];
+            : crowdConfig.culturalMix === 'casual-indoor'
+              ? [
+                  'western_streetwear',
+                  'western_streetwear',
+                  'western_blazer',
+                  'western_blazer',
+                  'african_ankara_peacock',
+                  'african_ankara_adire',
+                  'arabian_hijab',
+                ]
+              : [
+                  'african_ankara_peacock',
+                  'african_ankara_crimson',
+                  'african_ankara_orange',
+                  'african_ankara_sungold',
+                  'african_ankara_adire',
+                  'african_kente',
+                  'african_ankara_gele',
+                  'african_dashiki',
+                  'arabian_shemagh',
+                  'arabian_ghutra_bisht',
+                  'arabian_hijab',
+                  'western_blazer',
+                  'western_blazer',
+                  'western_streetwear',
+                  'western_streetwear',
+                ];
 
-    const africanSkins = ['#69422B', '#7C4F35', '#573421', '#8B5A3C'];
+    const africanSkins = ['#53301D', '#663D26', '#7A4C32', '#472817', '#8A593B', '#5D3621'];
+    const diverseSkins = ['#663D26', '#8A593B', '#B88462', '#D4A582', '#E8C1A8', '#53301D', '#CFA07C'];
     const arabianSkins = ['#D4A582', '#C3926D', '#DFB696', '#B58360'];
-    const westernSkins = ['#F4D8C6', '#E8C1A8', '#D7AC8C', '#F8E3D5', '#C29270'];
+    const westernSkins = ['#F0D1BE', '#E5BCA3', '#D4A889', '#BE8E6C', '#9E7052'];
 
     const westernBlazerColors = ['#263B5E', '#5B2333', '#2E473B', '#8E7355', '#3A3E52', '#4D325C'];
-    const westernStreetColors = ['#D96B43', '#2F7A78', '#4A558A', '#C99F3E', '#943B4E', '#3A5A40'];
+    const westernStreetColors = ['#C4603C', '#2E7270', '#465180', '#B8913A', '#883A4B', '#3A5A40'];
+    const gymAthleticColors = ['#2B313B', '#3E5E55', '#44536E', '#8F4036', '#564E6B', '#6A717D', '#232830'];
     const hijabColors = ['#E8DAC5', '#C98A8E', '#598A88', '#D6B36A', '#6A659E', '#354866'];
     const abayaTints = ['#9CA4B8', '#B89EB2', '#8FB0A8', '#A8A295'];
     const geleTints = ['#FFD56B', '#6AE0D2', '#FF8E6E', '#F0A6CA', '#FFFFFF'];
-    const hairColors = ['#181412', '#3B281E', '#6B482C', '#A68352', '#262322', '#807D7A'];
+    const hairColors = ['#151211', '#221B17', '#3B281E', '#6B482C', '#98774B', '#2E2A29'];
+    const naturalBlackHair = ['#121010', '#1B1715', '#241E1B'];
+    const bodyProfiles: Array<[number, number, number]> = [
+      [0.92, 0.99, 0.93], // Slender
+      [1.0, 1.0, 1.0],    // Average
+      [1.07, 1.05, 1.03], // Tall athletic
+      [1.15, 0.97, 1.14], // Fuller / curvy
+      [0.96, 1.03, 0.96], // Lean tall
+      [1.04, 0.96, 1.04], // Compact sturdy
+    ];
 
     let seed = 42 + crowdConfig.layout.length * 17;
     const nextRand = () => {
@@ -1015,7 +1363,22 @@ const PackedBoxingCrowd: React.FC<{
       let botHex = '#FFFFFF';
       let hwHex = '#FFFFFF';
 
-      if (culture === 'african_kente') {
+      if (
+        culture === 'african_ankara_peacock' ||
+        culture === 'african_ankara_crimson' ||
+        culture === 'african_ankara_sungold' ||
+        culture === 'african_ankara_adire'
+      ) {
+        skinHex = pick(africanSkins);
+        topHex = '#FFFFFF';
+        botHex = '#FFFFFF';
+        hwHex = pick(naturalBlackHair);
+      } else if (culture === 'african_ankara_orange') {
+        skinHex = pick(diverseSkins);
+        topHex = '#FFFFFF';
+        botHex = '#FFFFFF';
+        hwHex = pick(['#2A1E24', '#1E1816', '#3D2722']);
+      } else if (culture === 'african_kente') {
         skinHex = pick(africanSkins);
         topHex = pick(['#FFFFFF', '#F7E7C4', '#E8F0E5']);
         botHex = topHex;
@@ -1043,6 +1406,11 @@ const PackedBoxingCrowd: React.FC<{
         topHex = pick(abayaTints);
         botHex = topHex;
         hwHex = pick(hijabColors);
+      } else if (culture === 'gym_athletic') {
+        skinHex = pick(diverseSkins);
+        topHex = pick(gymAthleticColors);
+        botHex = pick(['#1C2026', '#262B34', '#2F3640']);
+        hwHex = pick(hairColors);
       } else if (culture === 'western_streetwear') {
         skinHex = pick(westernSkins);
         topHex = pick(westernStreetColors);
@@ -1055,13 +1423,18 @@ const PackedBoxingCrowd: React.FC<{
         hwHex = pick(hairColors);
       }
 
+      const baseScale = 3.16 + nextRand() * 0.38;
+      const [bpX, bpY, bpZ] = pick(bodyProfiles);
+
       grouped[culture].push({
         culture,
         x,
         y: rowY,
         z,
         rotY: Math.atan2(-x, -z) + (nextRand() - 0.5) * 0.22,
-        scale: 3.12 + nextRand() * 0.44,
+        scaleX: baseScale * bpX,
+        scaleY: baseScale * bpY,
+        scaleZ: baseScale * bpZ,
         phase: Math.atan2(z, x) * 2.0 + row * 0.65 + nextRand() * 1.5,
         skinColor: new THREE.Color(skinHex),
         topColor: new THREE.Color(topHex),
@@ -1401,36 +1774,112 @@ export const PlayersAndAudience: React.FC<{ activeSceneId: SceneId }> = ({ activ
       skinTint: string;
       outfitTint: string;
       hairColor: string;
-    }> = [
-      {
-        model: 'rpm',
-        culture: 'western_streetwear',
-        skinTint: '#D8A988',
-        outfitTint: '#2E9E95',
-        hairColor: '#1E1A18',
-      },
-      {
-        model: 'michelle',
-        culture: 'african_ankara_gele',
-        skinTint: '#FFFFFF',
-        outfitTint: '#FFFFFF',
-        hairColor: '#181412',
-      },
-      {
-        model: 'rpm',
-        culture: 'african_dashiki',
-        skinTint: '#6B422C',
-        outfitTint: '#FFFFFF',
-        hairColor: '#181412',
-      },
-      {
-        model: 'rpm',
-        culture: 'arabian_shemagh',
-        skinTint: '#D4A582',
-        outfitTint: '#FFFFFF',
-        hairColor: '#1C1714',
-      },
-    ];
+      bodyProportions: [number, number, number];
+    }> =
+      scene.crowd.culturalMix === 'lagos'
+        ? [
+            {
+              model: 'rpm',
+              culture: 'african_ankara_peacock',
+              skinTint: '#633B24',
+              outfitTint: '#FFFFFF',
+              hairColor: '#141110',
+              bodyProportions: [0.94, 1.0, 0.94],
+            },
+            {
+              model: 'rpm',
+              culture: 'african_ankara_crimson',
+              skinTint: '#55321E',
+              outfitTint: '#FFFFFF',
+              hairColor: '#141110',
+              bodyProportions: [1.05, 1.04, 1.02],
+            },
+            {
+              model: 'rpm',
+              culture: 'african_ankara_sungold',
+              skinTint: '#5D3620',
+              outfitTint: '#FFFFFF',
+              hairColor: '#161210',
+              bodyProportions: [0.98, 1.02, 0.97],
+            },
+            {
+              model: 'rpm',
+              culture: 'african_ankara_adire',
+              skinTint: '#6A3F27',
+              outfitTint: '#FFFFFF',
+              hairColor: '#141110',
+              bodyProportions: [0.95, 1.0, 0.95],
+            },
+          ]
+        : scene.crowd.culturalMix === 'gym'
+          ? [
+              {
+                model: 'rpm',
+                culture: 'gym_athletic',
+                skinTint: '#6B422C',
+                outfitTint: '#2E6E64',
+                hairColor: '#151211',
+                bodyProportions: [1.04, 1.03, 1.02],
+              },
+              {
+                model: 'rpm',
+                culture: 'gym_athletic',
+                skinTint: '#CFA07C',
+                outfitTint: '#36465C',
+                hairColor: '#181412',
+                bodyProportions: [0.95, 1.0, 0.95],
+              },
+              {
+                model: 'rpm',
+                culture: 'gym_athletic',
+                skinTint: '#D4A582',
+                outfitTint: '#7A3D34',
+                hairColor: '#261C16',
+                bodyProportions: [1.06, 1.04, 1.02],
+              },
+              {
+                model: 'rpm',
+                culture: 'gym_athletic',
+                skinTint: '#E8C1A8',
+                outfitTint: '#333A46',
+                hairColor: '#3B281E',
+                bodyProportions: [0.98, 1.01, 0.98],
+              },
+            ]
+          : [
+              {
+                model: 'rpm',
+                culture: 'african_ankara_peacock',
+                skinTint: '#653C25',
+                outfitTint: '#FFFFFF',
+                hairColor: '#151211',
+                bodyProportions: [0.96, 1.0, 0.96],
+              },
+              {
+                model: 'rpm',
+                culture: 'western_streetwear',
+                skinTint: '#E8C1A8',
+                outfitTint: '#355A6E',
+                hairColor: '#3B281E',
+                bodyProportions: [0.98, 1.0, 0.98],
+              },
+              {
+                model: 'rpm',
+                culture: 'african_ankara_crimson',
+                skinTint: '#593420',
+                outfitTint: '#FFFFFF',
+                hairColor: '#151211',
+                bodyProportions: [1.05, 1.04, 1.02],
+              },
+              {
+                model: 'rpm',
+                culture: 'arabian_shemagh',
+                skinTint: '#D4A582',
+                outfitTint: '#FFFFFF',
+                hairColor: '#1C1714',
+                bodyProportions: [1.01, 1.02, 1.0],
+              },
+            ];
 
     const activePlayerId = players[currentPlayerIndex]?.id;
     return list.map((p, idx) => {
@@ -1443,7 +1892,7 @@ export const PlayersAndAudience: React.FC<{ activeSceneId: SceneId }> = ({ activ
       const preset = playerPresets[idx % playerPresets.length];
 
       return {
-        id: `ring-player-${p.id}`,
+        id: `ring-player-${p.id}-${scene.crowd.culturalMix}`,
         ...preset,
         position: [x, FLOOR_Y, z] as [number, number, number],
         rotationY,
@@ -1452,7 +1901,7 @@ export const PlayersAndAudience: React.FC<{ activeSceneId: SceneId }> = ({ activ
         phaseOffset: idx * 1.35,
       };
     });
-  }, [mode, soloOpponent, players, currentPlayerIndex]);
+  }, [mode, soloOpponent, players, currentPlayerIndex, scene.crowd.culturalMix]);
 
   // Scene-aware foreground rigged spectators (0 for no-audience rooms, 4-6 for quiet spots, up to 14 for packed arena!)
   const ringsideVips = useMemo(() => {
@@ -1474,47 +1923,57 @@ export const PlayersAndAudience: React.FC<{ activeSceneId: SceneId }> = ({ activ
       skinTint: string;
       outfitTint: string;
       hairColor: string;
+      bodyProportions: [number, number, number];
     }> =
       crowd.culturalMix === 'lagos'
         ? [
-            { x: -6.8, z: -9.1, model: 'rpm', culture: 'african_kente', skinTint: '#6B422C', outfitTint: '#FFFFFF', hairColor: '#181412' },
-            { x: -3.6, z: -9.2, model: 'michelle', culture: 'african_ankara_gele', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
-            { x: 0.4, z: -9.1, model: 'rpm', culture: 'african_dashiki', skinTint: '#5F3823', outfitTint: '#FFFFFF', hairColor: '#181412' },
-            { x: 4.1, z: -9.0, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#7C4F35', outfitTint: '#F2C14E', hairColor: '#181412' },
-            { x: -9.2, z: -5.4, model: 'rpm', culture: 'african_kente', skinTint: '#6E442D', outfitTint: '#FFFFFF', hairColor: '#181412' },
-            { x: 9.1, z: -5.2, model: 'rpm', culture: 'western_streetwear', skinTint: '#764B32', outfitTint: '#2F7A78', hairColor: '#181412' },
-            { x: -9.0, z: -1.4, model: 'michelle', culture: 'african_ankara_gele', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
-            { x: 9.2, z: -1.0, model: 'rpm', culture: 'african_dashiki', skinTint: '#69422B', outfitTint: '#FFFFFF', hairColor: '#181412' },
-            { x: -9.0, z: 3.1, model: 'rpm', culture: 'western_blazer', skinTint: '#8B5A3C', outfitTint: '#5B2333', hairColor: '#181412' },
-            { x: 9.0, z: 2.8, model: 'rpm', culture: 'african_kente', skinTint: '#573421', outfitTint: '#FFFFFF', hairColor: '#181412' },
-            { x: -5.5, z: 9.0, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#6E442D', outfitTint: '#64E5D2', hairColor: '#181412' },
-            { x: 1.5, z: -9.3, model: 'rpm', culture: 'arabian_shemagh', skinTint: '#D4A582', outfitTint: '#FFFFFF', hairColor: '#1C1714' },
+            { x: -6.8, z: -9.1, model: 'rpm', culture: 'african_ankara_peacock', skinTint: '#633B24', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [0.93, 1.0, 0.93] },
+            { x: -3.6, z: -9.2, model: 'rpm', culture: 'african_ankara_crimson', skinTint: '#54311D', outfitTint: '#FFFFFF', hairColor: '#151211', bodyProportions: [1.06, 1.05, 1.03] },
+            { x: 0.4, z: -9.1, model: 'rpm', culture: 'african_ankara_orange', skinTint: '#CFA07C', outfitTint: '#FFFFFF', hairColor: '#2B1F26', bodyProportions: [1.16, 0.96, 1.14] },
+            { x: 4.1, z: -9.0, model: 'rpm', culture: 'african_ankara_sungold', skinTint: '#5B3520', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [0.97, 1.03, 0.96] },
+            { x: -9.2, z: -5.4, model: 'rpm', culture: 'african_ankara_adire', skinTint: '#683E26', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [0.94, 1.0, 0.94] },
+            { x: 9.1, z: -5.2, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#74472E', outfitTint: '#F2C14E', hairColor: '#151211', bodyProportions: [1.04, 0.99, 1.04] },
+            { x: -9.0, z: -1.4, model: 'rpm', culture: 'african_ankara_peacock', skinTint: '#5D3620', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [0.95, 1.0, 0.95] },
+            { x: 9.2, z: -1.0, model: 'rpm', culture: 'african_dashiki', skinTint: '#603923', outfitTint: '#FFFFFF', hairColor: '#151211', bodyProportions: [1.08, 1.04, 1.04] },
+            { x: -9.0, z: 3.1, model: 'rpm', culture: 'african_kente', skinTint: '#7C4F35', outfitTint: '#FFFFFF', hairColor: '#151211', bodyProportions: [1.02, 1.02, 1.02] },
+            { x: 9.0, z: 2.8, model: 'rpm', culture: 'african_ankara_crimson', skinTint: '#4F2D1B', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [1.04, 1.04, 1.02] },
+            { x: -5.5, z: 9.0, model: 'rpm', culture: 'african_ankara_adire', skinTint: '#6B4028', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [0.95, 1.0, 0.95] },
+            { x: 1.5, z: -9.3, model: 'rpm', culture: 'african_ankara_sungold', skinTint: '#593420', outfitTint: '#FFFFFF', hairColor: '#161210', bodyProportions: [1.0, 1.02, 0.99] },
           ]
-        : crowd.culturalMix === 'casual-indoor'
+        : crowd.culturalMix === 'gym'
           ? [
-              { x: -5.6, z: -8.9, model: 'rpm', culture: 'western_streetwear', skinTint: '#EBC6AD', outfitTint: '#2F7A78', hairColor: '#3B281E' },
-              { x: -1.4, z: -9.2, model: 'michelle', culture: 'western_streetwear', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
-              { x: 3.2, z: -9.0, model: 'rpm', culture: 'western_blazer', skinTint: '#7C4F35', outfitTint: '#263B5E', hairColor: '#181412' },
-              { x: -8.9, z: -4.2, model: 'rpm', culture: 'western_streetwear', skinTint: '#D8AD8A', outfitTint: '#4A558A', hairColor: '#1C1714' },
-              { x: 8.8, z: -4.4, model: 'rpm', culture: 'western_blazer', skinTint: '#F2D4C0', outfitTint: '#2E473B', hairColor: '#6B482C' },
-              { x: -8.7, z: 1.8, model: 'rpm', culture: 'african_dashiki', skinTint: '#6B422C', outfitTint: '#FFFFFF', hairColor: '#181412' },
+              { x: -5.6, z: -8.9, model: 'rpm', culture: 'gym_athletic', skinTint: '#653C25', outfitTint: '#365A52', hairColor: '#151211', bodyProportions: [1.06, 1.04, 1.03] },
+              { x: -1.4, z: -9.2, model: 'rpm', culture: 'gym_athletic', skinTint: '#CFA07C', outfitTint: '#3A465C', hairColor: '#241B16', bodyProportions: [0.95, 1.0, 0.95] },
+              { x: 3.2, z: -9.0, model: 'rpm', culture: 'gym_athletic', skinTint: '#D4A582', outfitTint: '#2E3440', hairColor: '#261C16', bodyProportions: [1.04, 1.02, 1.02] },
+              { x: -8.9, z: -4.2, model: 'rpm', culture: 'gym_athletic', skinTint: '#EBC6AD', outfitTint: '#7C4036', hairColor: '#4B3222', bodyProportions: [0.94, 1.01, 0.94] },
+              { x: 8.8, z: -4.4, model: 'rpm', culture: 'gym_athletic', skinTint: '#5D3621', outfitTint: '#48556E', hairColor: '#141110', bodyProportions: [1.08, 1.05, 1.04] },
+              { x: -8.7, z: 1.8, model: 'rpm', culture: 'gym_athletic', skinTint: '#C89874', outfitTint: '#4E4B63', hairColor: '#1C1714', bodyProportions: [1.01, 0.98, 1.02] },
             ]
-          : [
-              { x: -6.8, z: -9.1, model: 'rpm', culture: 'african_kente', skinTint: '#6B422C', outfitTint: '#FFFFFF', hairColor: '#181412' },
-              { x: -4.2, z: -9.0, model: 'rpm', culture: 'arabian_shemagh', skinTint: '#D4A582', outfitTint: '#FFFFFF', hairColor: '#1C1714' },
-              { x: -1.5, z: -9.15, model: 'michelle', culture: 'african_ankara_gele', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
-              { x: 1.3, z: -9.0, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#7C4F35', outfitTint: '#F2C14E', hairColor: '#181412' },
-              { x: 4.0, z: -9.1, model: 'rpm', culture: 'western_blazer', skinTint: '#EBC6AD', outfitTint: '#5B2333', hairColor: '#5C3C24' },
-              { x: 6.6, z: -9.0, model: 'rpm', culture: 'arabian_hijab', skinTint: '#D8AD8A', outfitTint: '#E5D3B3', hairColor: '#1A1614' },
-              { x: -9.1, z: -6.2, model: 'rpm', culture: 'african_dashiki', skinTint: '#5F3823', outfitTint: '#FFFFFF', hairColor: '#181412' },
-              { x: -9.0, z: -3.2, model: 'rpm', culture: 'western_streetwear', skinTint: '#F2D4C0', outfitTint: '#36588F', hairColor: '#8B683E' },
-              { x: -9.15, z: 0.2, model: 'rpm', culture: 'arabian_ghutra_bisht', skinTint: '#C89874', outfitTint: '#FFFFFF', hairColor: '#181412' },
-              { x: -9.0, z: 3.6, model: 'michelle', culture: 'african_ankara_gele', skinTint: '#FFFFFF', outfitTint: '#FFFFFF', hairColor: '#181412' },
-              { x: 9.1, z: -6.0, model: 'rpm', culture: 'arabian_shemagh', skinTint: '#CFA07C', outfitTint: '#FFFFFF', hairColor: '#1C1714' },
-              { x: 9.0, z: -2.8, model: 'rpm', culture: 'african_kente', skinTint: '#764B32', outfitTint: '#FFFFFF', hairColor: '#181412' },
-              { x: 9.15, z: 0.5, model: 'rpm', culture: 'western_blazer', skinTint: '#E5BFA4', outfitTint: '#2E4F45', hairColor: '#2B221D' },
-              { x: -5.5, z: 9.1, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#6E442D', outfitTint: '#64E5D2', hairColor: '#181412' },
-            ];
+          : crowd.culturalMix === 'casual-indoor'
+            ? [
+                { x: -5.6, z: -8.9, model: 'rpm', culture: 'western_streetwear', skinTint: '#EBC6AD', outfitTint: '#2F7A78', hairColor: '#3B281E', bodyProportions: [0.96, 1.0, 0.96] },
+                { x: -1.4, z: -9.2, model: 'rpm', culture: 'western_streetwear', skinTint: '#D8AD8A', outfitTint: '#5C3C4A', hairColor: '#241B16', bodyProportions: [0.96, 1.0, 0.96] },
+                { x: 3.2, z: -9.0, model: 'rpm', culture: 'western_blazer', skinTint: '#7C4F35', outfitTint: '#263B5E', hairColor: '#181412', bodyProportions: [1.05, 1.03, 1.03] },
+                { x: -8.9, z: -4.2, model: 'rpm', culture: 'western_streetwear', skinTint: '#D8AD8A', outfitTint: '#4A558A', hairColor: '#1C1714', bodyProportions: [1.02, 1.01, 1.02] },
+                { x: 8.8, z: -4.4, model: 'rpm', culture: 'western_blazer', skinTint: '#F2D4C0', outfitTint: '#2E473B', hairColor: '#6B482C', bodyProportions: [0.95, 0.99, 0.95] },
+                { x: -8.7, z: 1.8, model: 'rpm', culture: 'african_ankara_peacock', skinTint: '#653C25', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [1.01, 1.02, 1.0] },
+              ]
+            : [
+                { x: -6.8, z: -9.1, model: 'rpm', culture: 'african_ankara_peacock', skinTint: '#653C25', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [0.94, 1.0, 0.94] },
+                { x: -4.2, z: -9.0, model: 'rpm', culture: 'arabian_shemagh', skinTint: '#D4A582', outfitTint: '#FFFFFF', hairColor: '#1C1714', bodyProportions: [1.02, 1.03, 1.01] },
+                { x: -1.5, z: -9.15, model: 'rpm', culture: 'western_streetwear', skinTint: '#E8C1A8', outfitTint: '#36588F', hairColor: '#4B3222', bodyProportions: [0.97, 1.0, 0.97] },
+                { x: 1.3, z: -9.0, model: 'rpm', culture: 'african_ankara_crimson', skinTint: '#57331E', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [1.06, 1.04, 1.03] },
+                { x: 4.0, z: -9.1, model: 'rpm', culture: 'western_blazer', skinTint: '#EBC6AD', outfitTint: '#5B2333', hairColor: '#5C3C24', bodyProportions: [0.98, 1.01, 0.98] },
+                { x: 6.6, z: -9.0, model: 'rpm', culture: 'arabian_hijab', skinTint: '#D8AD8A', outfitTint: '#E5D3B3', hairColor: '#1A1614', bodyProportions: [0.95, 0.98, 0.96] },
+                { x: -9.1, z: -6.2, model: 'rpm', culture: 'african_ankara_orange', skinTint: '#CFA07C', outfitTint: '#FFFFFF', hairColor: '#2B1F26', bodyProportions: [1.14, 0.96, 1.13] },
+                { x: -9.0, z: -3.2, model: 'rpm', culture: 'western_streetwear', skinTint: '#F2D4C0', outfitTint: '#36588F', hairColor: '#8B683E', bodyProportions: [1.03, 1.02, 1.01] },
+                { x: -9.15, z: 0.2, model: 'rpm', culture: 'african_ankara_sungold', skinTint: '#5D3621', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [0.98, 1.03, 0.97] },
+                { x: -9.0, z: 3.6, model: 'rpm', culture: 'african_ankara_adire', skinTint: '#6B4028', outfitTint: '#FFFFFF', hairColor: '#141110', bodyProportions: [0.95, 1.0, 0.95] },
+                { x: 9.1, z: -6.0, model: 'rpm', culture: 'arabian_ghutra_bisht', skinTint: '#CFA07C', outfitTint: '#FFFFFF', hairColor: '#1C1714', bodyProportions: [1.04, 1.03, 1.02] },
+                { x: 9.0, z: -2.8, model: 'rpm', culture: 'african_kente', skinTint: '#764B32', outfitTint: '#FFFFFF', hairColor: '#181412', bodyProportions: [1.05, 1.02, 1.03] },
+                { x: 9.15, z: 0.5, model: 'rpm', culture: 'western_blazer', skinTint: '#E5BFA4', outfitTint: '#2E4F45', hairColor: '#2B221D', bodyProportions: [0.97, 1.0, 0.97] },
+                { x: -5.5, z: 9.1, model: 'rpm', culture: 'african_ankara_gele', skinTint: '#6E442D', outfitTint: '#64E5D2', hairColor: '#181412', bodyProportions: [1.02, 0.99, 1.02] },
+              ];
 
     return slots.slice(0, count).map((s, i) => ({
       id: `vip-fan-${activeSceneId}-${i}`,
@@ -1523,10 +1982,11 @@ export const PlayersAndAudience: React.FC<{ activeSceneId: SceneId }> = ({ activ
       skinTint: s.skinTint,
       outfitTint: s.outfitTint,
       hairColor: s.hairColor,
+      bodyProportions: s.bodyProportions,
       position: [s.x, FLOOR_Y, s.z] as [number, number, number],
       rotationY: Math.atan2(-s.x, -s.z),
       phaseOffset: i * 0.9,
-      scaleMultiplier: 0.96 + (i % 3) * 0.035,
+      scaleMultiplier: 0.96 + (i % 3) * 0.03,
     }));
   }, [graphicsQuality, scene, activeSceneId]);
 
@@ -1544,6 +2004,7 @@ export const PlayersAndAudience: React.FC<{ activeSceneId: SceneId }> = ({ activ
           skinTint={p.skinTint}
           outfitTint={p.outfitTint}
           hairColor={p.hairColor}
+          bodyProportions={p.bodyProportions}
           position={p.position}
           rotationY={p.rotationY}
           scaleMultiplier={p.isActive ? 1.03 : 0.99}
@@ -1565,6 +2026,7 @@ export const PlayersAndAudience: React.FC<{ activeSceneId: SceneId }> = ({ activ
           skinTint={vip.skinTint}
           outfitTint={vip.outfitTint}
           hairColor={vip.hairColor}
+          bodyProportions={vip.bodyProportions}
           position={vip.position}
           rotationY={vip.rotationY}
           scaleMultiplier={vip.scaleMultiplier}
