@@ -162,6 +162,8 @@ interface GameStoreState {
   activeChallenge: ChallengeDefinition | null;
   players: Player[];
   currentPlayerIndex: number;
+  lastMoverPlayerIndex: number | null;
+  currentTurnTouchedBlock: boolean;
   loserPlayerIndex: number | null;
 
   // Match State
@@ -320,6 +322,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   activeChallenge: null,
   players: [{ id: 'p1', name: initialSaved.profile.callsign, moves: 0, score: 0, color: PLAYER_COLORS[0], isAI: false, isLocal: true }],
   currentPlayerIndex: 0,
+  lastMoverPlayerIndex: null,
+  currentTurnTouchedBlock: false,
   loserPlayerIndex: null,
 
   runId: 1,
@@ -444,6 +448,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       pendingRemoteMove: null,
       players,
       currentPlayerIndex: 0,
+      lastMoverPlayerIndex: null,
+      currentTurnTouchedBlock: false,
       loserPlayerIndex: null,
       runId: nextRun,
       roundNumber: 1,
@@ -503,6 +509,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       pendingRemoteMove: null,
       players,
       currentPlayerIndex: 0,
+      lastMoverPlayerIndex: null,
+      currentTurnTouchedBlock: false,
       loserPlayerIndex: null,
       runId: nextRun,
       roundNumber: 1,
@@ -543,6 +551,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       pendingRemoteMove: null,
       players: [{ id: get().profile.clientId, name: get().profile.callsign, moves: 0, score: 0, color: challenge.accentColor, isLocal: true }],
       currentPlayerIndex: 0,
+      lastMoverPlayerIndex: null,
+      currentTurnTouchedBlock: false,
       loserPlayerIndex: null,
       runId: nextRun,
       roundNumber: 1,
@@ -646,6 +656,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
           activeChallenge: null,
           players,
           currentPlayerIndex: room.currentPlayerIndex,
+          lastMoverPlayerIndex: null,
+          currentTurnTouchedBlock: false,
           loserPlayerIndex: null,
           runId: nextRun,
           blocks,
@@ -717,6 +729,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         activeChallenge: null,
         players,
         currentPlayerIndex: 0,
+        lastMoverPlayerIndex: null,
+        currentTurnTouchedBlock: false,
         loserPlayerIndex: null,
         runId: nextRun,
         blocks,
@@ -771,6 +785,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             mode: 'live',
             players,
             currentPlayerIndex: fresh.currentPlayerIndex,
+            lastMoverPlayerIndex: null,
+            currentTurnTouchedBlock: false,
             loserPlayerIndex: null,
             runId: nextRun,
             blocks,
@@ -813,6 +829,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             roundNumber: serverRound,
             eliminatedThisRoundIndex: null,
             loserPlayerIndex: null,
+            lastMoverPlayerIndex: null,
+            currentTurnTouchedBlock: false,
             players,
             currentPlayerIndex: fresh.currentPlayerIndex,
             blocks,
@@ -918,6 +936,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             roundNumber: nextRound,
             eliminatedThisRoundIndex: null,
             loserPlayerIndex: null,
+            lastMoverPlayerIndex: null,
+            currentTurnTouchedBlock: false,
             players,
             currentPlayerIndex: fresh.currentPlayerIndex,
             blocks,
@@ -956,6 +976,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       roundNumber: nextRound,
       eliminatedThisRoundIndex: null,
       loserPlayerIndex: null,
+      lastMoverPlayerIndex: null,
+      currentTurnTouchedBlock: false,
       currentPlayerIndex: Math.max(0, firstActiveIdx),
       blocks,
       turnPhase: 'ready',
@@ -1018,6 +1040,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       activeMoveVisual: null,
       lastCompletedMove: null,
       loserPlayerIndex: null,
+      lastMoverPlayerIndex: null,
+      currentTurnTouchedBlock: false,
       feedbackToast: null,
       towerHeightLevels: 18,
     });
@@ -1031,6 +1055,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     set({
       selectedBlockId: id,
       isDraggingBlock: true,
+      currentTurnTouchedBlock: true,
       turnPhase: 'dragging',
     });
   },
@@ -1227,6 +1252,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       streak: state.streak + 1,
       players: updatedPlayers,
       currentPlayerIndex: nextPlayerIdx,
+      lastMoverPlayerIndex: state.currentPlayerIndex,
+      currentTurnTouchedBlock: false,
       bestSoloScore: nextBestScore,
       bestSoloMoves: nextBestMoves,
       profile: nextProfile,
@@ -1267,9 +1294,22 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     const isMultiPlayerElimination =
       (state.mode === 'passAndPlay' || state.mode === 'live') && state.players.length > 2;
 
+    // Official Jenga attribution rule:
+    // If the tower collapses while 'ready' BEFORE the next player has even touched a block on their turn,
+    // the collapse was caused by the previous mover (lastMoverPlayerIndex), never the idle next player!
+    const responsiblePlayerIndex =
+      !fromRemote &&
+      state.turnPhase === 'ready' &&
+      !state.currentTurnTouchedBlock &&
+      state.lastMoverPlayerIndex !== null &&
+      state.lastMoverPlayerIndex >= 0 &&
+      state.lastMoverPlayerIndex < state.players.length
+        ? state.lastMoverPlayerIndex
+        : state.currentPlayerIndex;
+
     const updatedPlayers = isMultiPlayerElimination
       ? state.players.map((p, idx) =>
-          idx === state.currentPlayerIndex
+          idx === responsiblePlayerIndex
             ? { ...p, eliminated: true, eliminatedRound: state.roundNumber }
             : p
         )
@@ -1278,7 +1318,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     const remainingSurvivors = updatedPlayers.filter((p) => !p.eliminated);
     const hasMoreRounds = isMultiPlayerElimination && remainingSurvivors.length > 1;
 
-    const loser = updatedPlayers[state.currentPlayerIndex];
+    const loser = updatedPlayers[responsiblePlayerIndex];
     const champion = remainingSurvivors.length === 1 ? remainingSurvivors[0] : null;
 
     const humanWonVsAi =
@@ -1297,7 +1337,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     }
 
     if (state.mode === 'live' && state.liveRoom && !fromRemote) {
-      liveMatchApi.reportCollapse(state.liveRoom.code, state.currentPlayerIndex).catch(() => {});
+      liveMatchApi.reportCollapse(state.liveRoom.code, responsiblePlayerIndex).catch(() => {});
     }
 
     const nextSoloAiWins = humanWonVsAi ? state.soloAiWins + 1 : state.soloAiWins;
@@ -1342,8 +1382,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       turnPhase: 'collapsing',
       isDraggingBlock: false,
       selectedBlockId: null,
-      loserPlayerIndex: state.currentPlayerIndex,
-      eliminatedThisRoundIndex: state.currentPlayerIndex,
+      loserPlayerIndex: responsiblePlayerIndex,
+      eliminatedThisRoundIndex: responsiblePlayerIndex,
       soloAiWins: nextSoloAiWins,
       profile: nextProfile,
       lastMatchXpEarned: bonusXp + state.movesCount * 15,

@@ -938,15 +938,11 @@ const PhysicsTowerInner: React.FC<{
       }
     }
 
-    // 4. Settling verification after top placement
-    if (state.turnPhase === 'settling') {
-      settleElapsedRef.current += dt;
-      if (settleElapsedRef.current >= 1.0) {
-        completeTurnAfterSettle();
-      }
-    }
+    // 4. Genuine Structural Collapse Detection & True Stability Verification
+    let isCollapsingNow = false;
+    let maxTowerLinSpeed = 0;
+    let maxTowerAngSpeed = 0;
 
-    // 5. Genuine Structural Collapse Detection (zero false positives)
     if (
       performance.now() - spawnTimeRef.current > 1500 &&
       (state.turnPhase === 'ready' ||
@@ -967,6 +963,15 @@ const PhysicsTowerInner: React.FC<{
         const pos = body.translation();
         const rot = body.rotation();
 
+        if (state.turnPhase === 'settling') {
+          const lv = body.linvel();
+          const av = body.angvel();
+          const ls = Math.hypot(lv.x, lv.y, lv.z);
+          const as = Math.hypot(av.x, av.y, av.z);
+          if (ls > maxTowerLinSpeed) maxTowerLinSpeed = ls;
+          if (as > maxTowerAngSpeed) maxTowerAngSpeed = as;
+        }
+
         if (pos.y < -0.5) {
           fellOffPedestalCount++;
           fallenCount++;
@@ -986,7 +991,7 @@ const PhysicsTowerInner: React.FC<{
         }
       }
 
-      const isCollapsingNow = fallenCount >= 2 || fellOffPedestalCount >= 1;
+      isCollapsingNow = fallenCount >= 2 || fellOffPedestalCount >= 1;
 
       if (isCollapsingNow) {
         collapseConfirmTimerRef.current += dt;
@@ -1016,6 +1021,22 @@ const PhysicsTowerInner: React.FC<{
             ? 'Blocks tumbled off the pedestal!'
             : 'Timber! The tower lost balance and collapsed.'
         );
+        return;
+      }
+    }
+
+    // 5. Settling verification after top placement — never hand over the turn while the tower is tipping!
+    if (state.turnPhase === 'settling') {
+      settleElapsedRef.current += dt;
+      const isPhysicallySteady = maxTowerLinSpeed < 0.28 && maxTowerAngSpeed < 0.35;
+      const safeToHandOff =
+        !isCollapsingNow &&
+        collapseConfirmTimerRef.current === 0 &&
+        settleElapsedRef.current >= 1.1 &&
+        (isPhysicallySteady || settleElapsedRef.current >= 2.8);
+
+      if (safeToHandOff) {
+        completeTurnAfterSettle();
       }
     }
   });
