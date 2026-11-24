@@ -18,18 +18,18 @@ export const TiltLogo: React.FC<TiltLogoProps> = ({ size = 'md' }) => {
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          {/* Three stacked blocks with the middle block subtly cantilevered — balance vs chaos */}
-          <rect x="4" y="25" width="24" height="6" rx="1.2" fill="#F4F0E8" />
+          {/* Three stacked blocks with the middle block cantilevered — balance vs chaos */}
+          <rect x="4" y="25" width="24" height="6" rx="1.5" fill="#FAF6EE" />
           <rect
             x="9"
             y="15"
             width="23"
             height="6"
-            rx="1.2"
+            rx="1.5"
             transform="rotate(-5 9 15)"
-            fill="#64E5D2"
+            fill="#FFB82E"
           />
-          <rect x="6" y="5" width="24" height="6" rx="1.2" fill="#FF9B65" />
+          <rect x="6" y="5" width="24" height="6" rx="1.5" fill="#FF5A45" />
         </svg>
       </div>
       <span className="tilt-logo-text" style={{ fontSize }}>

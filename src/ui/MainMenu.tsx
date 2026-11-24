@@ -36,8 +36,8 @@ export const MainMenu: React.FC = () => {
         transition={{ ...transition, delay: reducedMotion ? 0 : 0.06 }}
       >
         <div className="menu-tag-row">
-          <span className="menu-tag-line" />
-          <span className="eyebrow">54 Blocks · Live Boxing Ring Physics</span>
+          <span className="menu-live-pulse" aria-hidden="true" />
+          <span className="eyebrow">54 Blocks · 9 Playable 3D Arenas</span>
         </div>
 
         <h1 className="menu-headline">

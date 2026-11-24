@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Settings, Trophy, BarChart3, Gamepad2, Radio, Sparkles } from 'lucide-react';
+import { Volume2, VolumeX, Settings, Trophy, Gamepad2, Radio, Sparkles } from 'lucide-react';
 import { TiltLogo } from './TiltLogo';
 import { useGameStore, getLevelFromXp } from '../store/useGameStore';
 import { ScreenType } from '../types/game';
@@ -20,12 +20,14 @@ export const TopHubNav: React.FC = () => {
     { id: 'modeSelect', label: 'Modes', icon: <Sparkles size={14} /> },
     { id: 'joinLive', label: 'Live Arena', icon: <Radio size={14} /> },
     { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy size={14} /> },
-    { id: 'career', label: 'Career', icon: <BarChart3 size={14} /> },
   ];
 
   const isNavActive = (id: ScreenType) => {
     if (id === 'joinLive') {
       return screen === 'joinLive' || screen === 'createLive' || screen === 'liveLobby';
+    }
+    if (id === 'menu') {
+      return screen === 'menu' || screen === 'sceneSelect';
     }
     return screen === id;
   };
@@ -62,8 +64,9 @@ export const TopHubNav: React.FC = () => {
 
       <div className="hub-right-cluster">
         <button
-          className="hub-profile-pill"
+          className={`hub-profile-pill ${screen === 'career' ? 'active' : ''}`}
           title="View Career & Progress"
+          aria-current={screen === 'career' ? 'page' : undefined}
           onClick={() => {
             soundEngine.unlock();
             soundEngine.playUiClick(1.05);
