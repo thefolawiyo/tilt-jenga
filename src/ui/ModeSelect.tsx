@@ -3,12 +3,15 @@ import { motion } from 'framer-motion';
 import {
   ArrowRight,
   Bot,
+  Check,
   CheckCircle2,
+  ChevronRight,
   Clock,
   Flame,
   Target,
   User,
   Users,
+  Zap,
 } from 'lucide-react';
 import { useGameStore } from '../store/useGameStore';
 import { CHALLENGES, PALETTE, PLAYER_COLORS } from '../engine/constants';
@@ -68,24 +71,36 @@ export const ModeSelect: React.FC = () => {
             }}
             onDoubleClick={() => openScenePickerFor({ kind: 'solo', opponent: soloChoice, difficulty: aiDiff })}
           >
-            <div>
+            <div className="mode-card-body">
               <div className="mode-card-top">
                 <div className="mode-icon-box">
-                  <User size={22} />
+                  <User size={20} />
                 </div>
                 <span className="mode-badge">Endless</span>
               </div>
-              <h3 style={{ marginTop: 18 }}>Solo Mode</h3>
+              <span className="mode-card-eyebrow">SOLO · ENDLESS · VS. AI</span>
+              <h3>Solo Mode</h3>
               <p>
                 Play on your own for a high score, or go head-to-head against the Computer where
                 whoever topples the tower loses.
               </p>
             </div>
-            <div className="mode-card-footer">
-              <span>
-                Best: {bestSoloScore.toLocaleString()} · AI Wins: {soloAiWins}
+            <div className="card-action-capsule">
+              <span className="card-capsule-meta">
+                <Zap size={13} className="capsule-zap" />
+                Best {bestSoloScore.toLocaleString()} · {soloAiWins} AI Wins
               </span>
-              <ArrowRight size={15} />
+              <span className={`card-capsule-pill ${selectedTab === 'solo' ? 'selected' : ''}`}>
+                {selectedTab === 'solo' ? (
+                  <>
+                    <Check size={12} strokeWidth={3} /> Active
+                  </>
+                ) : (
+                  <>
+                    Select <ChevronRight size={13} />
+                  </>
+                )}
+              </span>
             </div>
           </button>
 
@@ -98,22 +113,36 @@ export const ModeSelect: React.FC = () => {
               setSelectedTab('passAndPlay');
             }}
           >
-            <div>
+            <div className="mode-card-body">
               <div className="mode-card-top">
                 <div className="mode-icon-box">
-                  <Users size={22} />
+                  <Users size={20} />
                 </div>
                 <span className="mode-badge">2–4 Players</span>
               </div>
-              <h3 style={{ marginTop: 18 }}>Pass &amp; Play</h3>
+              <span className="mode-card-eyebrow">PARTY TABLE · SAME DEVICE</span>
+              <h3>Pass &amp; Play</h3>
               <p>
                 Take turns on the same device. Hand over the controls after each clean stack —
                 whoever topples the tower loses.
               </p>
             </div>
-            <div className="mode-card-footer">
-              <span>Local Multiplayer</span>
-              <ArrowRight size={15} />
+            <div className="card-action-capsule">
+              <span className="card-capsule-meta">
+                <Zap size={13} className="capsule-zap" />
+                Local Multiplayer
+              </span>
+              <span className={`card-capsule-pill ${selectedTab === 'passAndPlay' ? 'selected' : ''}`}>
+                {selectedTab === 'passAndPlay' ? (
+                  <>
+                    <Check size={12} strokeWidth={3} /> Active
+                  </>
+                ) : (
+                  <>
+                    Select <ChevronRight size={13} />
+                  </>
+                )}
+              </span>
             </div>
           </button>
 
@@ -126,24 +155,38 @@ export const ModeSelect: React.FC = () => {
               setSelectedTab('challenge');
             }}
           >
-            <div>
+            <div className="mode-card-body">
               <div className="mode-card-top">
                 <div className="mode-icon-box">
-                  <Target size={22} />
+                  <Target size={20} />
                 </div>
                 <span className="mode-badge">
                   {completedChallenges.length}/{CHALLENGES.length} Done
                 </span>
               </div>
-              <h3 style={{ marginTop: 18 }}>Challenge Mode</h3>
+              <span className="mode-card-eyebrow">PRECISION · SPEED TRIALS</span>
+              <h3>Challenge Mode</h3>
               <p>
                 Curated physics scenarios: precarious single-pillar towers, speed trials, and
                 high-altitude precision runs.
               </p>
             </div>
-            <div className="mode-card-footer">
-              <span>4 Curated Trials</span>
-              <ArrowRight size={15} />
+            <div className="card-action-capsule">
+              <span className="card-capsule-meta">
+                <Zap size={13} className="capsule-zap" />
+                4 Curated Trials
+              </span>
+              <span className={`card-capsule-pill ${selectedTab === 'challenge' ? 'selected' : ''}`}>
+                {selectedTab === 'challenge' ? (
+                  <>
+                    <Check size={12} strokeWidth={3} /> Active
+                  </>
+                ) : (
+                  <>
+                    Select <ChevronRight size={13} />
+                  </>
+                )}
+              </span>
             </div>
           </button>
         </div>

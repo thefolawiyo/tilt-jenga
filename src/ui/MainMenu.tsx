@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Bot, Play, Plus, Radio } from 'lucide-react';
+import { Bot, ChevronRight, Play, Plus, Radio } from 'lucide-react';
 import { TopHubNav } from './TopHubNav';
 import { useGameStore, getLevelFromXp } from '../store/useGameStore';
 import { soundEngine } from '../audio/soundEngine';
@@ -25,7 +25,7 @@ export const MainMenu: React.FC = () => {
       exit={{ opacity: 0 }}
       transition={transition}
     >
-      {/* Modern AAA Game-Hub Top Navigation */}
+      {/* Clean Single-Row Top Bar (Desktop centered tabs · Mobile bottom dock) */}
       <TopHubNav />
 
       {/* Asymmetrical Editorial Hero Left Column — 3D Tower commands the right */}
@@ -51,12 +51,12 @@ export const MainMenu: React.FC = () => {
           live online ring.
         </p>
 
-        <div className="menu-cta-row">
+        <div className="menu-actions-grid">
           <button
             className="btn-primary"
             onClick={() => openScenePickerFor({ kind: 'solo', opponent: 'alone' })}
           >
-            <Play size={17} fill="currentColor" />
+            <Play size={16} fill="currentColor" />
             Play Solo
           </button>
           <button
@@ -66,9 +66,6 @@ export const MainMenu: React.FC = () => {
             <Bot size={16} />
             Vs. Computer
           </button>
-        </div>
-
-        <div className="menu-cta-row menu-live-row">
           <button
             className="btn-live-create"
             onClick={() => {
@@ -78,7 +75,7 @@ export const MainMenu: React.FC = () => {
             }}
           >
             <Plus size={16} />
-            Create Live Match
+            Create Live
           </button>
           <button
             className="btn-secondary"
@@ -89,12 +86,12 @@ export const MainMenu: React.FC = () => {
             }}
           >
             <Radio size={15} />
-            Join Live Match
+            Join Live
           </button>
         </div>
       </motion.section>
 
-      {/* Bottom Personal Progress & XP Strip */}
+      {/* Clean Dash-Style Bento Progress Bar (No Left Accent Stripe) */}
       <motion.footer
         className="menu-footer pointer-auto"
         initial={reducedMotion ? false : { y: 12, opacity: 0 }}
@@ -109,26 +106,40 @@ export const MainMenu: React.FC = () => {
           }}
           title="Open Career & Match History"
         >
-          <div className="menu-stat-item">
-            <span className="menu-stat-label">Level {lvl.level}</span>
-            <span className="menu-stat-value" style={{ color: 'var(--accent-aqua)' }}>
-              {lvl.currentXp}/{lvl.nextXp} XP
-            </span>
+          <div className="menu-stat-grid">
+            <div className="menu-stat-item menu-stat-xp">
+              <div className="menu-stat-top-row">
+                <span className="menu-stat-label">Level {lvl.level}</span>
+                <span className="menu-stat-xp-text">
+                  {lvl.currentXp}/{lvl.nextXp} XP
+                </span>
+              </div>
+              <div className="menu-stat-xp-bar">
+                <div className="menu-stat-xp-fill" style={{ width: `${lvl.pct}%` }} />
+              </div>
+            </div>
+
+            <div className="menu-stat-item">
+              <span className="menu-stat-label">Best Solo</span>
+              <span className="menu-stat-value">{bestSoloScore.toLocaleString()}</span>
+            </div>
+
+            <div className="menu-stat-item">
+              <span className="menu-stat-label">Wins</span>
+              <span className="menu-stat-value">{profile.totalWins}</span>
+            </div>
+
+            <div className="menu-stat-item">
+              <span className="menu-stat-label">Challenges</span>
+              <span className="menu-stat-value">
+                {completedChallenges.length}/{CHALLENGES.length}
+              </span>
+            </div>
           </div>
-          <div className="menu-stat-item">
-            <span className="menu-stat-label">Best Solo</span>
-            <span className="menu-stat-value">{bestSoloScore.toLocaleString()}</span>
-          </div>
-          <div className="menu-stat-item">
-            <span className="menu-stat-label">Wins</span>
-            <span className="menu-stat-value">{profile.totalWins}</span>
-          </div>
-          <div className="menu-stat-item">
-            <span className="menu-stat-label">Challenges</span>
-            <span className="menu-stat-value">
-              {completedChallenges.length}/{CHALLENGES.length}
-            </span>
-          </div>
+
+          <span className="menu-stat-cta">
+            Career <ChevronRight size={14} />
+          </span>
         </button>
 
         <div className="menu-footnote">Balance Versus Chaos · TILT Arena</div>

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Check, MapPin, Play, Sparkles, Sun, Users } from 'lucide-react';
+import { ArrowLeft, Check, ChevronRight, Play, Sparkles, Sun, Users } from 'lucide-react';
 import { useGameStore } from '../store/useGameStore';
 import { getSceneById, SCENE_REGISTRY } from '../engine/scenes';
 import { SceneCategory } from '../types/game';
@@ -111,15 +111,16 @@ export const SceneSelectScreen: React.FC = () => {
           ))}
         </div>
 
-        {/* Main Split Layout: Visual Scene Gallery + Prominent Selected Preview */}
+        {/* Main Split Layout: Dash-Style Full-Bleed Scene Gallery + Prominent Selected Preview */}
         <div className="scene-select-layout">
           <div className="scene-gallery-grid">
             {filteredScenes.map((scene) => {
               const isSelected = scene.id === selectedScene.id;
               return (
-                <button
+                <div
                   key={scene.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   className={`scene-card ${isSelected ? 'scene-card-selected' : ''}`}
                   style={{ '--scene-accent': scene.accentColor } as React.CSSProperties}
                   onClick={() => {
@@ -127,31 +128,59 @@ export const SceneSelectScreen: React.FC = () => {
                     soundEngine.playUiClick(isSelected ? 1.06 : 1.02);
                     setSelectedSceneId(scene.id);
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedSceneId(scene.id);
+                    }
+                  }}
                 >
-                  <div className="scene-card-media">
+                  {/* Full-bleed Artwork Backdrop with Smooth Dark Gradient Scrim (Dash Expo card style) */}
+                  <div className="scene-card-bg">
                     <SceneArtwork sceneId={scene.id} className="scene-card-svg" />
+                    <div className="scene-card-scrim" />
+                  </div>
+
+                  {/* Top Floating Pill Row */}
+                  <div className="scene-card-top">
                     <span className="scene-audience-chip">
                       <Users size={11} />
                       {scene.crowd.label}
                     </span>
                     {isSelected && (
                       <span className="scene-selected-check" aria-label="Selected">
-                        <Check size={14} strokeWidth={3} />
+                        <Check size={13} strokeWidth={3} />
                       </span>
                     )}
                   </div>
 
-                  <div className="scene-card-info">
-                    <div className="scene-card-title-row">
-                      <h3>{scene.name}</h3>
-                    </div>
-                    <div className="scene-card-location">
-                      <MapPin size={12} />
-                      <span>{scene.location}</span>
-                    </div>
+                  {/* Bottom Editorial Copy + Inset Frosted Action Capsule */}
+                  <div className="scene-card-content">
+                    <span className="scene-card-eyebrow">{scene.location}</span>
+                    <h3>{scene.name}</h3>
                     <p className="scene-card-atmo">{scene.atmosphereTag}</p>
+
+                    <div className="card-action-capsule scene-card-capsule">
+                      <span className="card-capsule-meta">
+                        <Sun size={12} className="capsule-zap" />
+                        {scene.timeOfDay}
+                      </span>
+                      <button
+                        type="button"
+                        className={`card-capsule-pill ${isSelected ? 'selected' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          soundEngine.unlock();
+                          soundEngine.playUiClick(1.08);
+                          setSelectedSceneId(scene.id);
+                          confirmSceneAndLaunch();
+                        }}
+                      >
+                        {isCreateLiveFlow ? 'Use' : 'Play'} <ChevronRight size={13} />
+                      </button>
+                    </div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
