@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Bot, ChevronRight, Play, Plus, Radio } from 'lucide-react';
+import { Bot, Play, Plus, Radio } from 'lucide-react';
 import { TopHubNav } from './TopHubNav';
 import { useGameStore, getLevelFromXp } from '../store/useGameStore';
 import { soundEngine } from '../audio/soundEngine';
@@ -136,13 +136,9 @@ export const MainMenu: React.FC = () => {
               </span>
             </div>
           </div>
-
-          <span className="menu-stat-cta">
-            Career <ChevronRight size={14} />
-          </span>
         </button>
 
-        <div className="menu-footnote">Balance Versus Chaos · TILT Arena</div>
+        <div className="menu-footnote">Balance Versus Chaos · TILT Arena · Uleo Labs</div>
       </motion.footer>
     </motion.div>
   );
