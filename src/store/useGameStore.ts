@@ -313,8 +313,24 @@ function buildLivePlayers(room: LiveRoom, localClientId: string): Player[] {
   }));
 }
 
+function computeBestOverallScore(bestSoloScore: number, profile: PlayerProfile): number {
+  let maxScore = Math.max(0, bestSoloScore);
+  for (const m of profile.matchHistory) {
+    if (typeof m.score === 'number' && m.score > maxScore) {
+      maxScore = m.score;
+    }
+  }
+  // Backfill for existing players who played Live / Vs. Computer matches before all-mode Best Score tracking
+  if (maxScore === 0 && (profile.totalMoves > 0 || profile.totalWins > 0 || profile.totalGames > 0)) {
+    const heightBonus = Math.max(0, profile.peakTowerHeight - 18) * 75;
+    maxScore = Math.max(100, profile.totalMoves * 115 + profile.totalWins * 250 + heightBonus);
+  }
+  return maxScore;
+}
+
 function syncProfileToGlobalLeaderboard(state: GameStoreState) {
-  if (state.profile.totalGames <= 0 && state.bestSoloScore <= 0) return;
+  const bestScore = computeBestOverallScore(state.bestSoloScore, state.profile);
+  if (state.profile.totalGames <= 0 && bestScore <= 0) return;
   const { level } = getLevelFromXp(state.profile.xp);
   liveMatchApi
     .submitLeaderboardScore({
@@ -322,7 +338,7 @@ function syncProfileToGlobalLeaderboard(state: GameStoreState) {
       callsign: state.profile.callsign,
       region: 'Global',
       level,
-      bestScore: state.bestSoloScore,
+      bestScore,
       wins: state.profile.totalWins,
       peakHeight: state.profile.peakTowerHeight,
     })
@@ -382,7 +398,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   feedbackToast: null,
   cameraCommand: null,
 
-  bestSoloScore: initialSaved.bestSoloScore,
+  bestSoloScore: computeBestOverallScore(initialSaved.bestSoloScore, initialSaved.profile),
   bestSoloMoves: initialSaved.bestSoloMoves,
   soloAiWins: initialSaved.soloAiWins,
   completedChallenges: initialSaved.completedChallenges,
@@ -452,6 +468,27 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     set({ leaderboardLoading: true });
     try {
       const { entries } = await liveMatchApi.listLeaderboard();
+      const state = get();
+      const localBest = computeBestOverallScore(state.bestSoloScore, state.profile);
+      const { level } = getLevelFromXp(state.profile.xp);
+      const serverSelf = entries.find((e) => e.id === state.profile.clientId);
+
+      // Self-heal stale 0-score or behind server entries automatically when opening Leaderboard
+      if (
+        (state.profile.totalGames > 0 || localBest > 0) &&
+        (!serverSelf ||
+          localBest > serverSelf.bestScore ||
+          state.profile.totalWins > serverSelf.wins ||
+          level > serverSelf.level ||
+          state.profile.peakTowerHeight > serverSelf.peakHeight)
+      ) {
+        if (localBest > state.bestSoloScore) {
+          set({ bestSoloScore: localBest });
+          persistCurrent(get());
+        }
+        syncProfileToGlobalLeaderboard(get());
+      }
+
       set({ globalLeaderboard: entries, leaderboardLoading: false });
     } catch {
       set({ leaderboardLoading: false });
@@ -461,7 +498,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   getLeaderboard: () => {
     const state = get();
     const { level } = getLevelFromXp(state.profile.xp);
-    const hasPlayed = state.profile.totalGames > 0 || state.bestSoloScore > 0;
+    const localBest = computeBestOverallScore(state.bestSoloScore, state.profile);
+    const hasPlayed = state.profile.totalGames > 0 || localBest > 0;
     const byId = new Map<string, LeaderboardEntry>();
 
     for (const entry of state.globalLeaderboard) {
@@ -478,7 +516,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         callsign: state.profile.callsign,
         region: existing?.region || 'Global',
         level: Math.max(level, existing?.level ?? 1),
-        bestScore: Math.max(state.bestSoloScore, existing?.bestScore ?? 0),
+        bestScore: Math.max(localBest, existing?.bestScore ?? 0),
         wins: Math.max(state.profile.totalWins, existing?.wins ?? 0),
         peakHeight: Math.max(state.profile.peakTowerHeight, existing?.peakHeight ?? 18),
         isCurrentUser: true,
@@ -1236,9 +1274,16 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     let nextBestMoves = state.bestSoloMoves;
     let isNewBest = state.isNewBest;
 
-    if (state.mode === 'solo' && state.soloOpponent === 'alone' && nextScore > nextBestScore) {
-      nextBestScore = nextScore;
-      nextBestMoves = Math.max(nextBestMoves, nextMoves);
+    // Track the local player's best score across ALL modes (Solo, Vs. Computer, Live Arena, Challenge, Pass & Play)
+    const localPlayerAfterMove = updatedPlayers.find((p) => p.isLocal && !p.isAI);
+    const playerEarnedScore =
+      state.mode === 'live' || (state.mode === 'solo' && state.soloOpponent === 'computer')
+        ? localPlayerAfterMove?.score ?? nextScore
+        : nextScore;
+
+    if (playerEarnedScore > nextBestScore) {
+      nextBestScore = playerEarnedScore;
+      nextBestMoves = Math.max(nextBestMoves, localPlayerAfterMove?.moves ?? nextMoves);
       isNewBest = true;
     }
 
@@ -1258,11 +1303,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         : [...state.completedChallenges, state.activeChallenge.id];
 
       const bonusXp = 140;
+      const challengeFinalScore = nextScore + 250;
       const historyEntry: MatchHistoryEntry = {
         id: `m-${Date.now()}`,
         modeLabel: `Challenge · ${state.activeChallenge.title}`,
         result: 'win',
-        score: nextScore,
+        score: challengeFinalScore,
         moves: nextMoves,
         peakHeight: state.towerHeightLevels,
         xpEarned: earnedMoveXp + bonusXp,
@@ -1279,7 +1325,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       soundEngine.playVictory();
       set({
         movesCount: nextMoves,
-        score: nextScore,
+        score: challengeFinalScore,
+        bestSoloScore: Math.max(nextBestScore, challengeFinalScore),
+        bestSoloMoves: Math.max(nextBestMoves, nextMoves),
         players: updatedPlayers,
         completedChallenges: completed,
         profile: finalProfile,
@@ -1429,13 +1477,21 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             : `Challenge · ${state.activeChallenge?.title ?? ''}`;
 
     // Only log final match history when the tournament/match actually finishes (1 clear winner or solo end)
+    const localFinalPlayer = updatedPlayers.find((p) => p.isLocal && !p.isAI);
+    const victoryScoreBonus = isMatchWin ? 250 : 0;
+    const matchEarnedScore =
+      (state.mode === 'live' || (state.mode === 'solo' && state.soloOpponent === 'computer')
+        ? localFinalPlayer?.score ?? state.score
+        : state.score) + victoryScoreBonus;
+    const nextBestScoreAfterMatch = Math.max(state.bestSoloScore, matchEarnedScore);
+
     let nextProfile = state.profile;
     if (!hasMoreRounds && state.matchRecordedForRunId !== state.runId) {
       const historyEntry: MatchHistoryEntry = {
         id: `m-${Date.now()}`,
         modeLabel,
         result: isMatchWin ? 'win' : state.mode === 'solo' && state.soloOpponent === 'alone' ? 'completed' : 'loss',
-        score: state.score,
+        score: matchEarnedScore,
         moves: state.movesCount,
         peakHeight: state.towerHeightLevels,
         xpEarned: bonusXp + state.movesCount * 15,
@@ -1460,6 +1516,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       loserPlayerIndex: responsiblePlayerIndex,
       eliminatedThisRoundIndex: responsiblePlayerIndex,
       soloAiWins: nextSoloAiWins,
+      bestSoloScore: nextBestScoreAfterMatch,
       profile: nextProfile,
       lastMatchXpEarned: bonusXp + state.movesCount * 15,
       matchRecordedForRunId: hasMoreRounds ? state.matchRecordedForRunId : state.runId,
