@@ -63,9 +63,9 @@ export const PauseModal: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '12px 14px',
-            background: 'var(--bg-midnight)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 3,
+            background: 'rgba(11, 13, 20, 0.84)',
+            border: '1px solid rgba(255, 248, 235, 0.09)',
+            borderRadius: 14,
           }}
         >
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 14 }}>

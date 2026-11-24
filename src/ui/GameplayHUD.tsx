@@ -170,12 +170,14 @@ export const GameplayHUD: React.FC = () => {
           </div>
         </header>
 
-        {/* Left Telemetry Column (Desktop) / Compact Top Bar (Mobile) */}
+        {/* Desktop Left Telemetry Column */}
         <aside className="hud-telemetry-column">
           <motion.div
             key={`turn-${activePlayer?.id}-${currentPlayerIndex}`}
             className="hud-card hud-turn-card"
-            style={{ borderLeftColor: activePlayer?.color ?? '#64E5D2' }}
+            style={{
+              borderColor: `${activePlayer?.color ?? '#20E3B2'}66`,
+            }}
             initial={settings.reducedMotion ? false : { x: -8, opacity: 0.75 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ duration: 0.25 }}
@@ -183,7 +185,13 @@ export const GameplayHUD: React.FC = () => {
             <div className="hud-label">
               {isTurnBased ? 'Active Turn' : 'Player'}
             </div>
-            <div className="hud-player-name">{activePlayer?.name}</div>
+            <div className="hud-player-name-row">
+              <span
+                className="player-dot"
+                style={{ backgroundColor: activePlayer?.color ?? '#20E3B2' }}
+              />
+              <span className="hud-player-name">{activePlayer?.name}</span>
+            </div>
 
             {isTurnBased && players.length > 1 && (
               <div className="hud-players-mini">
@@ -238,35 +246,87 @@ export const GameplayHUD: React.FC = () => {
           </div>
 
           {moveTracker && (
-            <div
-              className="hud-card hud-move-tracker"
-              style={{ borderLeft: `3px solid ${moveTracker.playerColor}` }}
-            >
+            <div className="hud-card hud-move-tracker">
               <div className="hud-label">
                 {activeMoveVisual ? 'Live Brick Move' : 'Last Move'}
               </div>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: moveTracker.playerColor,
-                  marginBottom: 4,
-                }}
-              >
-                {moveTracker.playerName}
+              <div className="hud-move-actor">
+                <span className="player-dot" style={{ backgroundColor: moveTracker.playerColor }} />
+                <span style={{ color: moveTracker.playerColor }}>{moveTracker.playerName}</span>
               </div>
-              <div className="font-mono" style={{ fontSize: 12, color: 'var(--text-ivory)', lineHeight: 1.4 }}>
-                From L{moveTracker.fromLevel + 1} ({slotLabel(moveTracker.fromSlot)})
+              <div className="font-mono" style={{ fontSize: 12, color: 'var(--text-ivory)', lineHeight: 1.45 }}>
+                L{moveTracker.fromLevel + 1} ({slotLabel(moveTracker.fromSlot)})
                 {moveTracker.toLevel !== undefined && (
-                  <>
-                    <br />
-                    To L{moveTracker.toLevel + 1} ({slotLabel(moveTracker.toSlot)})
-                  </>
+                  <> → L{moveTracker.toLevel + 1} ({slotLabel(moveTracker.toSlot)})</>
                 )}
               </div>
             </div>
           )}
         </aside>
+
+        {/* Mobile Native Compact Telemetry Strip (<= 780px: single slim 48px pill + micro move pill!) */}
+        <div className="hud-mobile-bar-wrap">
+          <div className="hud-mobile-strip">
+            <div className="hud-mobile-turn">
+              <span
+                className="hud-mobile-turn-dot"
+                style={{ backgroundColor: activePlayer?.color ?? '#20E3B2' }}
+              />
+              <div className="hud-mobile-turn-copy">
+                <span className="hud-mobile-micro-label">
+                  {isTurnBased ? 'Turn' : 'Player'}
+                </span>
+                <span className="hud-mobile-turn-name">{activePlayer?.name}</span>
+              </div>
+            </div>
+
+            <div className="hud-mobile-divider" />
+
+            <div className="hud-mobile-stats">
+              <div className="hud-mobile-stat">
+                <span className="hud-mobile-micro-label">Score</span>
+                <span className="hud-mobile-stat-val hud-mobile-score">
+                  <AnimatedNumber value={score} />
+                </span>
+              </div>
+              <div className="hud-mobile-stat">
+                <span className="hud-mobile-micro-label">Moves</span>
+                <span className="hud-mobile-stat-val">
+                  {mode === 'challenge' && activeChallenge
+                    ? `${movesCount}/${activeChallenge.targetMoves}`
+                    : movesCount}
+                </span>
+              </div>
+              <div className="hud-mobile-stat">
+                <span className="hud-mobile-micro-label">
+                  {timeRemaining !== null ? 'Time' : 'Lvls'}
+                </span>
+                <span
+                  className={`hud-mobile-stat-val ${
+                    timeRemaining !== null && timeRemaining <= 15 ? 'hud-timer-urgent' : ''
+                  }`}
+                >
+                  {timeRemaining !== null ? formatTimer(timeRemaining) : towerHeightLevels}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {moveTracker && (
+            <div className="hud-mobile-move-pill">
+              <span className="player-dot" style={{ backgroundColor: moveTracker.playerColor }} />
+              <span className="hud-mobile-move-who" style={{ color: moveTracker.playerColor }}>
+                {moveTracker.playerName}
+              </span>
+              <span className="hud-mobile-move-path font-mono">
+                L{moveTracker.fromLevel + 1} {slotLabel(moveTracker.fromSlot)}
+                {moveTracker.toLevel !== undefined
+                  ? ` → L${moveTracker.toLevel + 1} ${slotLabel(moveTracker.toSlot)}`
+                  : ''}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Contextual Feedback Banner */}
