@@ -346,7 +346,7 @@ export const JoinLiveScreen: React.FC = () => {
                   className="player-input room-code-input"
                   value={codeInput}
                   onChange={(e) => setCodeInput(e.target.value)}
-                  placeholder="e.g. LAGOS4 or paste invite link"
+                  placeholder="e.g. X7K9P2 or paste invite link"
                   required
                 />
               </div>

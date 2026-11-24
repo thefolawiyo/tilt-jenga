@@ -160,8 +160,9 @@ export interface LiveRoom {
   mode: LiveRoomMode;
   visibility: 'public' | 'private';
   maxPlayers: 2 | 3 | 4;
-  status: 'waiting' | 'playing' | 'finished';
+  status: 'waiting' | 'playing' | 'round_over' | 'finished';
   seed: number;
+  roundNumber?: number;
   players: Array<{
     id: string;
     name: string;
@@ -170,10 +171,14 @@ export interface LiveRoom {
     isAI?: boolean;
     moves: number;
     score: number;
+    eliminated?: boolean;
+    eliminatedRound?: number;
   }>;
   currentPlayerIndex: number;
   moves: LiveMoveRecord[];
   loserPlayerIndex: number | null;
+  eliminatedThisRoundIndex?: number | null;
+  winnerPlayerIndex?: number | null;
   createdAt: number;
   updatedAt: number;
 }

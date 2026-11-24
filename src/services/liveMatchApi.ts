@@ -1,8 +1,8 @@
-import { LiveRoom, LiveRoomMode } from '../types/game';
+import { LeaderboardEntry, LiveRoom, LiveRoomMode } from '../types/game';
 
 /**
- * Extracts a clean 6-char room code whether the user typed `LAGOS4`
- * or pasted a full shareable URL like `http://localhost:5173/?join=LAGOS4`.
+ * Extracts a clean 6-char room code whether the user typed a code
+ * or pasted a full shareable URL like `https://your-app.vercel.app/?join=CODE`.
  */
 export function extractRoomCode(rawInput: string): string {
   const trimmed = rawInput.trim();
@@ -110,5 +110,44 @@ export const liveMatchApi = {
       body: JSON.stringify({ loserPlayerIndex }),
     });
     return data.room;
+  },
+
+  async startNextRound(code: string): Promise<LiveRoom> {
+    const clean = extractRoomCode(code);
+    const data = await apiJson<{ room: LiveRoom }>(`/api/rooms/${clean}/next-round`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    return data.room;
+  },
+
+  async listLeaderboard(): Promise<{ entries: LeaderboardEntry[]; storageConfigured?: boolean }> {
+    const data = await apiJson<{ entries: LeaderboardEntry[]; storageConfigured?: boolean }>(
+      '/api/leaderboard'
+    );
+    return {
+      entries: data.entries ?? [],
+      storageConfigured: data.storageConfigured,
+    };
+  },
+
+  async submitLeaderboardScore(payload: {
+    id: string;
+    callsign: string;
+    region?: string;
+    level: number;
+    bestScore: number;
+    wins: number;
+    peakHeight: number;
+  }): Promise<LeaderboardEntry | null> {
+    try {
+      const data = await apiJson<{ entry: LeaderboardEntry }>('/api/leaderboard', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      return data.entry ?? null;
+    } catch {
+      return null;
+    }
   },
 };

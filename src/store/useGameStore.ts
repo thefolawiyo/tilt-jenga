@@ -37,17 +37,6 @@ export function getLevelFromXp(xp: number): { level: number; currentXp: number; 
   };
 }
 
-const GLOBAL_LEADERBOARD_SEED: LeaderboardEntry[] = [
-  { id: 'lb-1', callsign: 'Amara_Kente', region: 'Lagos, NG', level: 18, bestScore: 3420, wins: 29, peakHeight: 27 },
-  { id: 'lb-2', callsign: 'TariqAlMansoor', region: 'Dubai, UAE', level: 16, bestScore: 2980, wins: 24, peakHeight: 26 },
-  { id: 'lb-3', callsign: 'Sora_Valkyrie', region: 'Tokyo, JP', level: 14, bestScore: 2610, wins: 21, peakHeight: 25 },
-  { id: 'lb-4', callsign: 'LiamSterling', region: 'London, UK', level: 12, bestScore: 2140, wins: 17, peakHeight: 24 },
-  { id: 'lb-5', callsign: 'ZainabGold', region: 'Accra, GH', level: 10, bestScore: 1790, wins: 14, peakHeight: 23 },
-  { id: 'lb-6', callsign: 'NadiaRiyadh', region: 'Riyadh, SA', level: 8, bestScore: 1380, wins: 11, peakHeight: 22 },
-  { id: 'lb-7', callsign: 'MarcusVegas', region: 'Las Vegas, US', level: 6, bestScore: 980, wins: 7, peakHeight: 21 },
-  { id: 'lb-8', callsign: 'ChidiBalance', region: 'Abuja, NG', level: 4, bestScore: 620, wins: 4, peakHeight: 20 },
-];
-
 interface PersistedData {
   bestSoloScore: number;
   bestSoloMoves: number;
@@ -190,10 +179,12 @@ interface GameStoreState {
   lastMatchXpEarned: number;
   matchRecordedForRunId: number;
 
-  // Live Multiplayer Room State
+  // Live Multiplayer Room State & Global Leaderboard
   liveClientId: string;
   liveRoom: LiveRoom | null;
   availableLiveRooms: LiveRoom[];
+  globalLeaderboard: LeaderboardEntry[];
+  leaderboardLoading: boolean;
   liveLoading: boolean;
   liveError: string | null;
   appliedLiveMoveSeq: number;
@@ -224,6 +215,7 @@ interface GameStoreState {
   setSettingsOpen: (open: boolean) => void;
   setInstructionsOpen: (open: boolean) => void;
   updateCallsign: (callsign: string) => void;
+  fetchLeaderboard: () => Promise<void>;
   getLeaderboard: () => LeaderboardEntry[];
   setPendingJoinCode: (code: string | null) => void;
 
@@ -295,7 +287,25 @@ function buildLivePlayers(room: LiveRoom, localClientId: string): Player[] {
     isAI: Boolean(p.isAI),
     isHost: p.isHost,
     isLocal: p.id === localClientId,
+    eliminated: Boolean(p.eliminated),
+    eliminatedRound: p.eliminatedRound,
   }));
+}
+
+function syncProfileToGlobalLeaderboard(state: GameStoreState) {
+  if (state.profile.totalGames <= 0 && state.bestSoloScore <= 0) return;
+  const { level } = getLevelFromXp(state.profile.xp);
+  liveMatchApi
+    .submitLeaderboardScore({
+      id: state.profile.clientId,
+      callsign: state.profile.callsign,
+      region: 'Global',
+      level,
+      bestScore: state.bestSoloScore,
+      wins: state.profile.totalWins,
+      peakHeight: state.profile.peakTowerHeight,
+    })
+    .catch(() => {});
 }
 
 export const useGameStore = create<GameStoreState>((set, get) => ({
@@ -329,6 +339,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   liveClientId: TAB_LIVE_CLIENT_ID,
   liveRoom: null,
   availableLiveRooms: [],
+  globalLeaderboard: [],
+  leaderboardLoading: false,
   liveLoading: false,
   liveError: null,
   appliedLiveMoveSeq: 0,
@@ -363,22 +375,47 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     const nextProfile = { ...get().profile, callsign };
     set({ profile: nextProfile });
     persistCurrent({ ...get(), profile: nextProfile });
+    syncProfileToGlobalLeaderboard(get());
+  },
+
+  fetchLeaderboard: async () => {
+    set({ leaderboardLoading: true });
+    try {
+      const { entries } = await liveMatchApi.listLeaderboard();
+      set({ globalLeaderboard: entries, leaderboardLoading: false });
+    } catch {
+      set({ leaderboardLoading: false });
+    }
   },
 
   getLeaderboard: () => {
     const state = get();
     const { level } = getLevelFromXp(state.profile.xp);
-    const userEntry: LeaderboardEntry = {
-      id: state.profile.clientId,
-      callsign: state.profile.callsign,
-      region: 'You · Local',
-      level,
-      bestScore: state.bestSoloScore,
-      wins: state.profile.totalWins,
-      peakHeight: state.profile.peakTowerHeight,
-      isCurrentUser: true,
-    };
-    return [...GLOBAL_LEADERBOARD_SEED, userEntry];
+    const hasPlayed = state.profile.totalGames > 0 || state.bestSoloScore > 0;
+    const byId = new Map<string, LeaderboardEntry>();
+
+    for (const entry of state.globalLeaderboard) {
+      byId.set(entry.id, {
+        ...entry,
+        isCurrentUser: entry.id === state.profile.clientId,
+      });
+    }
+
+    if (hasPlayed) {
+      const existing = byId.get(state.profile.clientId);
+      byId.set(state.profile.clientId, {
+        id: state.profile.clientId,
+        callsign: state.profile.callsign,
+        region: existing?.region || 'Global',
+        level: Math.max(level, existing?.level ?? 1),
+        bestScore: Math.max(state.bestSoloScore, existing?.bestScore ?? 0),
+        wins: Math.max(state.profile.totalWins, existing?.wins ?? 0),
+        peakHeight: Math.max(state.profile.peakTowerHeight, existing?.peakHeight ?? 18),
+        isCurrentUser: true,
+      });
+    }
+
+    return Array.from(byId.values());
   },
 
   startSoloGame: (opponent = 'alone', difficulty) => {
@@ -759,14 +796,55 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         return;
       }
 
-      // In Live Gameplay: sync remote moves & collapses
+      // In Live Gameplay: sync remote moves, collapses & next elimination rounds
       if (state.screen === 'playing' && state.mode === 'live') {
+        const serverRound = fresh.roundNumber ?? 1;
+
+        // Remote host/player advanced the match to the next elimination round
+        if (fresh.status === 'playing' && serverRound > state.roundNumber) {
+          const nextRun = state.runId + 1;
+          const preset = fresh.mode === 'precarious' ? 'precarious' : 'standard';
+          const blocks = generateTowerBlocks(preset, fresh.seed);
+          const players = buildLivePlayers(fresh, state.liveClientId);
+          soundEngine.playTurnChange();
+          set({
+            liveRoom: fresh,
+            runId: nextRun,
+            roundNumber: serverRound,
+            eliminatedThisRoundIndex: null,
+            loserPlayerIndex: null,
+            players,
+            currentPlayerIndex: fresh.currentPlayerIndex,
+            blocks,
+            turnPhase: 'ready',
+            towerHeightLevels: getTowerLevelStats(blocks).totalHeightLevels,
+            timeRemaining: fresh.mode === 'blitz' ? 120 : null,
+            appliedLiveMoveSeq: fresh.moves.length,
+            pendingRemoteMove: null,
+            activeMoveVisual: null,
+            lastCompletedMove: null,
+            feedbackToast: {
+              message: `Round ${serverRound} started — ${players[fresh.currentPlayerIndex]?.name ?? 'Next player'}'s turn!`,
+              tone: 'aqua',
+              nonce: Date.now(),
+            },
+            cameraCommand: { type: 'reset', nonce: Date.now() },
+          });
+          return;
+        }
+
         if (
-          fresh.status === 'finished' &&
+          (fresh.status === 'finished' || fresh.status === 'round_over') &&
           state.turnPhase !== 'collapsing' &&
           state.turnPhase !== 'gameover'
         ) {
-          set({ liveRoom: fresh });
+          set({
+            liveRoom: fresh,
+            currentPlayerIndex:
+              typeof fresh.loserPlayerIndex === 'number'
+                ? fresh.loserPlayerIndex
+                : state.currentPlayerIndex,
+          });
           get().triggerCollapse('The tower collapsed in the live arena!', true);
           return;
         }
@@ -824,13 +902,53 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     soundEngine.unlock();
     soundEngine.playTurnChange();
 
+    if (state.mode === 'live' && state.liveRoom) {
+      liveMatchApi
+        .startNextRound(state.liveRoom.code)
+        .then((fresh) => {
+          const cur = get();
+          const nextRun = cur.runId + 1;
+          const nextRound = fresh.roundNumber ?? cur.roundNumber + 1;
+          const preset = fresh.mode === 'precarious' ? 'precarious' : 'standard';
+          const blocks = generateTowerBlocks(preset, fresh.seed);
+          const players = buildLivePlayers(fresh, cur.liveClientId);
+          set({
+            liveRoom: fresh,
+            runId: nextRun,
+            roundNumber: nextRound,
+            eliminatedThisRoundIndex: null,
+            loserPlayerIndex: null,
+            players,
+            currentPlayerIndex: fresh.currentPlayerIndex,
+            blocks,
+            turnPhase: 'ready',
+            towerHeightLevels: getTowerLevelStats(blocks).totalHeightLevels,
+            timeRemaining: fresh.mode === 'blitz' ? 120 : null,
+            appliedLiveMoveSeq: 0,
+            pendingRemoteMove: null,
+            isPaused: false,
+            hoveredBlockId: null,
+            selectedBlockId: null,
+            isDraggingBlock: false,
+            isPlacementValid: false,
+            activeMoveVisual: null,
+            lastCompletedMove: null,
+            feedbackToast: {
+              message: `Round ${nextRound} — ${players.filter((p) => !p.eliminated).length} contenders left!`,
+              tone: 'aqua',
+              nonce: Date.now(),
+            },
+            cameraCommand: { type: 'reset', nonce: Date.now() },
+          });
+        })
+        .catch(() => {});
+      return;
+    }
+
     const nextRun = state.runId + 1;
     const nextRound = state.roundNumber + 1;
     const firstActiveIdx = state.players.findIndex((p) => !p.eliminated);
-    const preset =
-      state.mode === 'live' && state.liveRoom?.mode === 'precarious'
-        ? 'precarious'
-        : 'standard';
+    const preset = 'standard';
     const blocks = generateTowerBlocks(preset, Date.now());
 
     set({
@@ -1072,6 +1190,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         feedbackToast: { message: 'Challenge Complete!', tone: 'aqua', nonce: Date.now() },
       });
       persistCurrent(get());
+      syncProfileToGlobalLeaderboard(get());
       return;
     }
 
@@ -1126,6 +1245,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         : { message: `+${movePoints} pts — Solid placement`, tone: 'aqua', nonce: Date.now() },
     });
     persistCurrent(get());
+    if (isNewBest) {
+      syncProfileToGlobalLeaderboard(get());
+    }
   },
 
   triggerCollapse: (reason, fromRemote = false) => {
@@ -1174,7 +1296,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       setTimeout(() => soundEngine.playVictory(), 1200);
     }
 
-    if (state.mode === 'live' && state.liveRoom && !fromRemote && !hasMoreRounds) {
+    if (state.mode === 'live' && state.liveRoom && !fromRemote) {
       liveMatchApi.reportCollapse(state.liveRoom.code, state.currentPlayerIndex).catch(() => {});
     }
 
@@ -1239,6 +1361,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       },
     });
     persistCurrent(get());
+    if (!hasMoreRounds) {
+      syncProfileToGlobalLeaderboard(get());
+    }
   },
 
   finishCollapseToGameOver: () => {
