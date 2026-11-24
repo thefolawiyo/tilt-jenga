@@ -1,5 +1,5 @@
 import { Redis } from '@upstash/redis';
-import type { ServerLeaderboardEntry, ServerLiveRoom } from './types';
+import type { ServerLeaderboardEntry, ServerLiveRoom } from './types.js';
 
 const ROOM_TTL_SECONDS = 60 * 60 * 6; // Expire inactive rooms after 6 hours
 const ROOM_KEY_PREFIX = 'tilt:room:';
@@ -9,8 +9,16 @@ const LEADERBOARD_HASH_KEY = 'tilt:leaderboard';
 let redisClient: Redis | null | undefined;
 
 function getRedisCredentials(): { url: string; token: string } | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL ||
+    process.env.KV_REST_API_URL ||
+    process.env.REDIS_REST_URL ||
+    '';
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN ||
+    process.env.KV_REST_API_TOKEN ||
+    process.env.REDIS_REST_TOKEN ||
+    '';
   if (!url || !token) return null;
   return { url, token };
 }

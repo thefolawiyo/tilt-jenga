@@ -1,4 +1,4 @@
-import { handleGetRoom } from '../../../server/roomsService';
+import { handleGetRoom } from '../../_lib/roomsService.js';
 
 const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' };
 

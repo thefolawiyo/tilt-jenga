@@ -10,8 +10,8 @@ import {
   handleNextRoundRoom,
   handleStartRoom,
   handleSubmitMove,
-} from './server/roomsService';
-import { handleGetLeaderboard, handleUpsertLeaderboard } from './server/leaderboardService';
+} from './api/_lib/roomsService';
+import { handleGetLeaderboard, handleUpsertLeaderboard } from './api/_lib/leaderboardService';
 
 function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve) => {

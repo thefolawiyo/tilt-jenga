@@ -4,8 +4,8 @@ import {
   isVercelProductionWithoutRedis,
   listStoredPublicRooms,
   saveStoredRoom,
-} from './storage';
-import type { ServerLivePlayer, ServerLiveRoom, ServerRoomMode, ServiceResult } from './types';
+} from './storage.js';
+import type { ServerLivePlayer, ServerLiveRoom, ServerRoomMode, ServiceResult } from './types.js';
 
 const PLAYER_COLORS = ['#64E5D2', '#FF9B65', '#8581FF', '#F5D061'];
 
@@ -318,7 +318,6 @@ export async function handleCollapseRoom(
   room.eliminatedThisRoundIndex = loserIdx;
 
   if (remaining.length > 1) {
-    // 3–4 player elimination match: keep tournament open for next round!
     room.status = 'round_over';
     room.winnerPlayerIndex = null;
   } else {

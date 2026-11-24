@@ -1,4 +1,4 @@
-import { handleCreateRoom, handleListPublicRooms } from '../../server/roomsService';
+import { handleCreateRoom, handleListPublicRooms } from '../_lib/roomsService.js';
 
 const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' };
 

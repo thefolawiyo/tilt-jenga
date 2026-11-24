@@ -3,8 +3,8 @@ import {
   isVercelProductionWithoutRedis,
   listStoredLeaderboard,
   upsertStoredLeaderboardEntry,
-} from './storage';
-import type { ServerLeaderboardEntry, ServiceResult } from './types';
+} from './storage.js';
+import type { ServerLeaderboardEntry, ServiceResult } from './types.js';
 
 export async function handleGetLeaderboard(): Promise<ServiceResult> {
   if (isVercelProductionWithoutRedis()) {

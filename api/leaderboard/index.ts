@@ -1,4 +1,4 @@
-import { handleGetLeaderboard, handleUpsertLeaderboard } from '../../server/leaderboardService';
+import { handleGetLeaderboard, handleUpsertLeaderboard } from '../_lib/leaderboardService.js';
 
 const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' };
 
